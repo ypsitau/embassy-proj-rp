@@ -95,14 +95,13 @@ async fn main(_spawner: Spawner) {
     let fut_gpio = async {
         let mut gpio_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
         loop {
-            info!("led on!");
             gpio_led.set_high();
             Timer::after_secs(1).await;
-            info!("led off!");
             gpio_led.set_low();
             Timer::after_secs(1).await;
         }
     };
+    info!("Starting main loop");
     {% if use_usb_driver -%}
     embassy_futures::join::join3(fut_usb, fut_echo, fut_gpio).await;
 {% else -%}
