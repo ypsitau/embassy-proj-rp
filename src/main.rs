@@ -88,4 +88,3 @@ async fn main(_spawner: Spawner) {
     fut_gpio.await;
 }
 {% endif -%}
-
