@@ -3,17 +3,25 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp::gpio;
-{% if use_usb_driver -%}
+use embassy_rp as rp;
+{% if use_usb_driver %}
 use embassy_usb as usb;
-{% endif -%}
+{% endif %}
 use embassy_time::Timer;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+{% if use_usb_driver %}
+
+rp::bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
+});
+{% endif %}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_rp::init(Default::default());
-{% if use_usb_driver -%}
+    let p = rp::init(Default::default());
+{% if use_usb_driver %}
+    let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
         const PID: u16 = 0xcafe;
@@ -43,11 +51,11 @@ async fn main(_spawner: Spawner) {
             static STATIC_CELL: StaticCell<[u8; CONTROL_BUF_SIZE]> = StaticCell::new();
             STATIC_CELL.init([0; CONTROL_BUF_SIZE])
         };
-        let device_handler = { // should be replaced by make_static macro when it becomes available
-            static STATIC_CELL: StaticCell<DeviceHandler> = StaticCell::new();
-            STATIC_CELL.init(DeviceHandler::new())
-        };
-        let mut usb_builder = usb::Builder::new(usb_driver, config,
+        //let device_handler = { // should be replaced by make_static macro when it becomes available
+        //    static STATIC_CELL: StaticCell<DeviceHandler> = StaticCell::new();
+        //    STATIC_CELL.init(DeviceHandler::new())
+        //};
+        let usb_builder = usb::Builder::new(usb_driver, config,
             config_descriptor_buf, bos_descriptor_buf, msos_descriptor_buf, control_buf);
         //usb_builder.handler(device_handler);
         usb_builder
@@ -62,15 +70,22 @@ async fn main(_spawner: Spawner) {
     };
     let mut usb_device = usb_builder.build();
     let fut_usb = usb_device.run();
-    let (cdc_sender, cdc_receiver) = cdc_driver.split();
-{% endif -%}
-    let mut gpio_led = gpio::Output::new(p.PIN_25, gpio::Level::Low);
-    loop {
-        info!("led on!");
-        gpio_led.set_high();
-        Timer::after_secs(1).await;
-        info!("led off!");
-        gpio_led.set_low();
-        Timer::after_secs(1).await;
-    }
+    let (_cdc_sender, _cdc_receiver) = cdc_driver.split();
+{% endif %}
+    let fut_gpio = async {
+        let mut gpio_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
+        loop {
+            info!("led on!");
+            gpio_led.set_high();
+            Timer::after_secs(1).await;
+            info!("led off!");
+            gpio_led.set_low();
+            Timer::after_secs(1).await;
+        }
+    };
+{% if use_usb_driver %}
+    embassy_futures::join::join(fut_usb, fut_gpio).await;
+{% else %}
+    fut_gpio.await;
+{% endif %}
 }
