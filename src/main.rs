@@ -4,16 +4,16 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::gpio;
-{% if use_usb_driver %}
+{% if use_usb_driver -%}
 use embassy_usb as usb;
-{% endif %}
+{% endif -%}
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-    {% if use_usb_driver %}
+{% if use_usb_driver -%}
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
         const PID: u16 = 0xcafe;
@@ -63,7 +63,7 @@ async fn main(_spawner: Spawner) {
     let mut usb_device = usb_builder.build();
     let fut_usb = usb_device.run();
     let (cdc_sender, cdc_receiver) = cdc_driver.split();
-    {% endif %}
+{% endif -%}
     let mut gpio_led = gpio::Output::new(p.PIN_25, gpio::Level::Low);
     loop {
         info!("led on!");
