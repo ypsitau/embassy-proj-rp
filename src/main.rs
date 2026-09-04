@@ -85,5 +85,5 @@ async fn main(_spawner: Spawner) {
     embassy_futures::join::join(fut_usb, fut_gpio).await;
 {% else -%}
     fut_gpio.await;
-{% endif %}
+{% endif -%}
 }
