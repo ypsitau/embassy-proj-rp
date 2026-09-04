@@ -10,13 +10,11 @@ use embassy_usb as usb;
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-{% if use_usb_driver -%}
-
+{% if use_usb_driver %}
 rp::bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
 });
-{% endif -%}
-
+{% endif %}
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = rp::init(Default::default());
@@ -87,5 +85,5 @@ async fn main(_spawner: Spawner) {
     embassy_futures::join::join(fut_usb, fut_gpio).await;
     {% else -%}
     fut_gpio.await;
-    {% endif -%}
+{% endif -%}
 }
