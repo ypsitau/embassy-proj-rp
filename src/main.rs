@@ -83,7 +83,9 @@ async fn main(_spawner: Spawner) {
     };
     {% if use_usb_driver -%}
     embassy_futures::join::join(fut_usb, fut_gpio).await;
+}
     {% else -%}
     fut_gpio.await;
-{% endif -%}
 }
+{% endif -%}
+
