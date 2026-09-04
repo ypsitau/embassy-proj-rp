@@ -4,23 +4,23 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp as rp;
-{% if use_usb_driver %}
+{% if use_usb_driver -%}
 use embassy_usb as usb;
-{% endif %}
+{% endif -%}
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-{% if use_usb_driver %}
+{% if use_usb_driver -%}
 
 rp::bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
 });
-{% endif %}
+{% endif -%}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = rp::init(Default::default());
-{% if use_usb_driver %}
+{% if use_usb_driver -%}
     let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
@@ -71,7 +71,7 @@ async fn main(_spawner: Spawner) {
     let mut usb_device = usb_builder.build();
     let fut_usb = usb_device.run();
     let (_cdc_sender, _cdc_receiver) = cdc_driver.split();
-{% endif %}
+{% endif -%}
     let fut_gpio = async {
         let mut gpio_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
         loop {
@@ -83,9 +83,9 @@ async fn main(_spawner: Spawner) {
             Timer::after_secs(1).await;
         }
     };
-{% if use_usb_driver %}
+{% if use_usb_driver -%}
     embassy_futures::join::join(fut_usb, fut_gpio).await;
-{% else %}
+{% else -%}
     fut_gpio.await;
-{% endif %}
+{% endif -%}
 }
