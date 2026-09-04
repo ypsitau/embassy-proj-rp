@@ -68,7 +68,29 @@ async fn main(_spawner: Spawner) {
     };
     let mut usb_device = usb_builder.build();
     let fut_usb = usb_device.run();
-    let (_cdc_sender, _cdc_receiver) = cdc_driver.split();
+    let fut_echo = async {
+        let (mut cdc_sender, mut cdc_receiver) = cdc_driver.split();
+        let mut first = true;
+        let buf = {
+            static STATIC_CELL: StaticCell<[u8; 64]> = StaticCell::new();
+            STATIC_CELL.init([0u8; 64])
+        };
+        loop {
+            cdc_receiver.wait_connection().await;
+            info!("Connected");
+            let e = loop {
+                let buf_read = match cdc_receiver.read_packet(buf).await {
+                    Ok(n) => &buf[..n], Err(e) => break e,
+                };
+                if first {
+                    if let Err(e) = cdc_sender.write_packet(b"\r\nEcho via USB\r\n").await { break e; }
+                    first = false;
+                }
+                if let Err(e) = cdc_sender.write_packet(buf_read).await { break e; }
+            };
+            if e != usb::driver::EndpointError::Disabled { break; }
+        };
+    };
     {% endif -%}
     let fut_gpio = async {
         let mut gpio_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
@@ -82,7 +104,7 @@ async fn main(_spawner: Spawner) {
         }
     };
     {% if use_usb_driver -%}
-    embassy_futures::join::join(fut_usb, fut_gpio).await;
+    embassy_futures::join::join3(fut_usb, fut_echo, fut_gpio).await;
 {% else -%}
     fut_gpio.await;
 {% endif -%}
