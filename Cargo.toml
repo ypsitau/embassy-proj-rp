@@ -28,6 +28,11 @@ heapless = "0.9.3"
 portable-atomic = { version = "1.5", features = ["critical-section"] } # required for static_cell
 static_cell = "2"
 
+{% if use_usb_driver %}
+embassy-usb = { version = "0.6.0", features = ["defmt"] }
+embassy-usb-driver = { version = "0.2.2", features = ["defmt"] }
+{% endif %}
+
 [target.'cfg( target_arch = "arm" )'.dependencies]
 panic-probe = { version = "1", features = ["print-defmt"] }
 

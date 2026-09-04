@@ -1,7 +1,7 @@
 [template]
 cargo_generate_version = ">=0.18.0"
 
-[placeholders.use_async]
+[placeholders.use_usb_device]
 type = "bool"
-prompt = "tokio などの非同期ランタイムを含めますか？"
+prompt = "Use USB driver support?"
 default = false
