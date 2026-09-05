@@ -12,8 +12,8 @@ use embassy_usb as usb;
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-{% case template %}
-{% when "USB device CDC" -%}
+{% case template -%}
+{% when "USB device CDC" %}
 rp::bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
 });
