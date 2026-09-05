@@ -5,17 +5,21 @@ use core::sync::atomic;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp as rp;
-{% if use_usb_driver -%}
+{% case template -%}
+{% when "USB device CDC" -%}
 use embassy_usb as usb;
-{% endif -%}
+{% endcase -%}
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-{% if use_usb_driver %}
+{% case template -%}
+{% when "USB device CDC" -%}
+
 rp::bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
 });
-{% endif %}
+{% endcase -%}
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = rp::init(Default::default());
