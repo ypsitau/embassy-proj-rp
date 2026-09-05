@@ -108,7 +108,8 @@ async fn main(_spawner: Spawner) {
     fut_blinky.await;
 {% endcase -%}
 }
-
+{% case template -%}
+{% when "USB device CDC" %}
 //-----------------------------------------------------------------------------
 // USBHandler
 //-----------------------------------------------------------------------------
@@ -144,3 +145,4 @@ impl usb::Handler for USBHandler {
         self.configured.store(configured, atomic::Ordering::Relaxed);
     }
 }
+{% endcase -%}
