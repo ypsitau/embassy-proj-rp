@@ -19,7 +19,8 @@ rp::bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = rp::init(Default::default());
-    {% if use_usb_driver -%}
+    {% case template -%}
+    {% when "USB device CDC" -%}
     let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
@@ -28,12 +29,12 @@ async fn main(_spawner: Spawner) {
         const BOS_DESCRIPTOR_SIZE: usize = 256;
         const MSOS_DESCRIPTOR_SIZE: usize = 256;
         const CONTROL_BUF_SIZE: usize = 64;
-        let mut config = usb::Config::new(VID, PID);
-        config.manufacturer = Some("Embassy");
-        config.product = Some("{{project-name}}");
-        config.serial_number = Some("12345678");
-        config.max_power = 100;
-        config.max_packet_size_0 = CONTROL_BUF_SIZE as u8;
+        let mut usb_config = usb::Config::new(VID, PID);
+        usb_config.manufacturer = Some("Embassy");
+        usb_config.product = Some("{{project-name}}");
+        usb_config.serial_number = Some("12345678");
+        usb_config.max_power = 100;
+        usb_config.max_packet_size_0 = CONTROL_BUF_SIZE as u8;
         let config_descriptor_buf = {
             static STATIC_CELL: StaticCell<[u8; CONFIG_DESCRIPTOR_SIZE]> = StaticCell::new();
             STATIC_CELL.init([0u8; CONFIG_DESCRIPTOR_SIZE])
@@ -54,7 +55,7 @@ async fn main(_spawner: Spawner) {
             static STATIC_CELL: StaticCell<USBHandler> = StaticCell::new();
             STATIC_CELL.init(USBHandler::new())
         };
-        let mut usb_builder = usb::Builder::new(usb_driver, config,
+        let mut usb_builder = usb::Builder::new(usb_driver, usb_config,
             config_descriptor_buf, bos_descriptor_buf, msos_descriptor_buf, control_buf);
         usb_builder.handler(usb_handler);
         usb_builder
@@ -87,7 +88,7 @@ async fn main(_spawner: Spawner) {
             if e != usb::driver::EndpointError::Disabled { break; }
         };
     };
-    {% endif -%}
+    {% endcase -%}
     let fut_blinky = async {
         let mut gpio_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
         loop {
@@ -98,11 +99,12 @@ async fn main(_spawner: Spawner) {
         }
     };
     info!("Starting main loop");
-    {% if use_usb_driver -%}
+    {% case template -%}
+    {% when "USB device CDC" -%}
     embassy_futures::join::join3(fut_usb, fut_echo, fut_blinky).await;
 {% else -%}
     fut_blinky.await;
-{% endif -%}
+{% endcase -%}
 }
 
 //-----------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 [template]
 cargo_generate_version = ">=0.18.0"
 
-[placeholders.use_usb_driver]
-type = "bool"
-prompt = "Use USB driver support?"
-default = false
+[placeholders.template]
+type = "string"
+prompt = "Choose a template"
+choices = ["none", "USB device CDC"]
+default = "none"
