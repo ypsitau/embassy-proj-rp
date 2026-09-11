@@ -102,7 +102,7 @@ async fn main(_spawner: Spawner) {
         };
     };
     embassy_futures::join::join(fut_usb, fut_echo).await;
-    {-% endcase %}
+    {%- endcase %}
 }
 {% case template -%}
 {%- when "USB device CDC" %}
