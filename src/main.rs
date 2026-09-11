@@ -22,7 +22,18 @@ rp::bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let p = rp::init(Default::default());
     {% case template -%}
-    {% when "USB device CDC" -%}
+    {%- when "Blinky" -%}
+    let fut_blinky = async {
+        let mut gpio_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
+        loop {
+            gpio_led.set_high();
+            Timer::after_secs(1).await;
+            gpio_led.set_low();
+            Timer::after_secs(1).await;
+        }
+    };
+    fut_blinky.await;
+    {%- when "USB device CDC" -%}
     let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
@@ -90,26 +101,12 @@ async fn main(_spawner: Spawner) {
             if e != usb::driver::EndpointError::Disabled { break; }
         };
     };
-    {% endcase -%}
-    let fut_blinky = async {
-        let mut gpio_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
-        loop {
-            gpio_led.set_high();
-            Timer::after_secs(1).await;
-            gpio_led.set_low();
-            Timer::after_secs(1).await;
-        }
-    };
-    info!("Starting main loop");
-    {% case template -%}
-    {% when "USB device CDC" -%}
-    embassy_futures::join::join3(fut_usb, fut_echo, fut_blinky).await;
-{% else -%}
-    fut_blinky.await;
-{% endcase -%}
+    embassy_futures::join::join(fut_usb, fut_echo).await;
+    {-% endcase %}
 }
 {% case template -%}
-{% when "USB device CDC" %}
+{%- when "Blinky" -%}
+{%- when "USB device CDC" %}
 //-----------------------------------------------------------------------------
 // USBHandler
 //-----------------------------------------------------------------------------
@@ -145,4 +142,4 @@ impl usb::Handler for USBHandler {
         self.configured.store(configured, atomic::Ordering::Relaxed);
     }
 }
-{% endcase -%}
+{%- endcase %}

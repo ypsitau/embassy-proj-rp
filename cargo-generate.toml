@@ -4,5 +4,5 @@ cargo_generate_version = ">=0.18.0"
 [placeholders.template]
 type = "string"
 prompt = "Choose a template"
-choices = ["none", "USB device CDC"]
-default = "none"
+choices = ["Blinky", "USB device CDC"]
+default = "Blinky"
