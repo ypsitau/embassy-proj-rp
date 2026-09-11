@@ -1,3 +1,32 @@
+{% case template -%}
+{% when "Blinky" -%}
+#![no_std]
+#![no_main]
+
+use embassy_executor::Spawner;
+use embassy_rp as rp;
+use embassy_time::Timer;
+use {defmt_rtt as _, panic_probe as _};
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let gpio_led = {
+        let p = rp::init(Default::default());
+        rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low)
+    };
+    let fut_task_blinky = task_blinky(gpio_led);
+    fut_task_blinky.await;
+}
+
+async fn task_blinky(mut gpio_led: impl embedded_hal_1::digital::OutputPin) {
+    loop {
+        gpio_led.set_high().ok();
+        Timer::after_secs(1).await;
+        gpio_led.set_low().ok();
+        Timer::after_secs(1).await;
+    }
+}
+{% when "USB device CDC" -%}
 #![no_std]
 #![no_main]
 
@@ -5,36 +34,30 @@ use core::sync::atomic;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp as rp;
-{% case template -%}
-{% when "USB device CDC" -%}
 use embassy_usb as usb;
-{% endcase -%}
-use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-{% case template -%}
-{% when "USB device CDC" %}
+
 rp::bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
 });
-{% endcase %}
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = rp::init(Default::default());
-    {% case template -%}
-    {%- when "Blinky" -%}
-    let fut_blinky = async {
-        let mut gpio_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
-        loop {
-            gpio_led.set_high();
-            Timer::after_secs(1).await;
-            gpio_led.set_low();
-            Timer::after_secs(1).await;
-        }
+    let usb_driver = {
+        // Raspberry Pi Pico initialization
+        let p = rp::init(Default::default());
+        rp::usb::Driver::new(p.USB, Irqs)
     };
-    fut_blinky.await;
-    {%- when "USB device CDC" -%}
-    let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
+    // Launch a task
+    let fut_task_usb = task_usb(usb_driver);
+    fut_task_usb.await;
+}
+
+//-----------------------------------------------------------------------------
+// USB task
+//-----------------------------------------------------------------------------
+async fn task_usb(usb_driver: impl usb::driver::Driver<'static>) {
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
         const PID: u16 = 0xcafe;
@@ -44,7 +67,7 @@ async fn main(_spawner: Spawner) {
         const CONTROL_BUF_SIZE: usize = 64;
         let mut usb_config = usb::Config::new(VID, PID);
         usb_config.manufacturer = Some("Embassy");
-        usb_config.product = Some("{{project-name}}");
+        usb_config.product = Some("hoge");
         usb_config.serial_number = Some("12345678");
         usb_config.max_power = 100;
         usb_config.max_packet_size_0 = CONTROL_BUF_SIZE as u8;
@@ -102,10 +125,8 @@ async fn main(_spawner: Spawner) {
         };
     };
     embassy_futures::join::join(fut_usb, fut_echo).await;
-    {%- endcase %}
 }
-{% case template -%}
-{%- when "USB device CDC" %}
+
 //-----------------------------------------------------------------------------
 // USBHandler
 //-----------------------------------------------------------------------------
@@ -141,4 +162,4 @@ impl usb::Handler for USBHandler {
         self.configured.store(configured, atomic::Ordering::Relaxed);
     }
 }
-{%- endcase %}
+{% endcase -%}
