@@ -105,7 +105,6 @@ async fn main(_spawner: Spawner) {
     {-% endcase %}
 }
 {% case template -%}
-{%- when "Blinky" -%}
 {%- when "USB device CDC" %}
 //-----------------------------------------------------------------------------
 // USBHandler
