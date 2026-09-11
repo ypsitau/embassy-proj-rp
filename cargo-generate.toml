@@ -6,3 +6,13 @@ type = "string"
 prompt = "Choose a template"
 choices = ["Blinky", "USB device CDC"]
 default = "Blinky"
+
+[[conditional_files]]
+condition = 'not (template == "Blinky")'
+files = ["src/main_blinky.rs"]
+rename = "src/main.rs"
+
+[[conditional_files]]
+condition = 'not (template == "USB device CDC")'
+files = ["src/main_usb_device_cdc.rs"]
+rename = "src/main.rs"
