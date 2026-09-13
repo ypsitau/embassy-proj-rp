@@ -1,5 +1,9 @@
 [template]
 cargo_generate_version = ">=0.18.0"
+copy_without_render = ["cyw43-firmware/**"]
+
+[conditional.'template != "Wi-Fi HTTP Client"']
+ignore = ["cyw43-firmware"]
 
 [placeholders.template]
 type = "string"
