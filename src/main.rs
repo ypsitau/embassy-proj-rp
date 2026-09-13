@@ -3,6 +3,7 @@
 #![no_std]
 #![no_main]
 
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp as rp;
 use embassy_time as time;
@@ -27,11 +28,14 @@ where
     InputPin: hal::digital::InputPin + hal_async::digital::Wait,
     OutputPin: hal::digital::OutputPin,
 {
+    info!("Starting task_pin_in_out");
     loop {
         let is_pushed = pin_sw.is_low().unwrap();
         if is_pushed {
+            info!("Button pressed");
             pin_led.set_high().ok();
         } else {
+            info!("Button released");
             pin_led.set_low().ok();
         }
         pin_sw.wait_for_any_edge().await.ok();
