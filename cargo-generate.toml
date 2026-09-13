@@ -1,12 +1,16 @@
 [template]
 cargo_generate_version = ">=0.18.0"
-copy_without_render = ["cyw43-firmware/**"]
+copy_without_render = ["cyw43-firmware"]
+
+[placeholders.template]
+prompt = "Choose a template"
+choices = [
+    "GPIO In/Out",
+    "USB device CDC",
+    "Wi-Fi HTTP Client"
+]
+default = "GPIO In/Out"
+type = "string"
 
 [conditional.'template != "Wi-Fi HTTP Client"']
 ignore = ["cyw43-firmware"]
-
-[placeholders.template]
-type = "string"
-prompt = "Choose a template"
-choices = ["GPIO In/Out", "USB device CDC", "Wi-Fi HTTP Client"]
-default = "GPIO In/Out"
