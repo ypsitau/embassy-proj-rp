@@ -60,19 +60,15 @@ rp::bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let usb_driver = {
-        // Raspberry Pi Pico initialization
+    let (usb_driver,) = {
         let p = rp::init(Default::default());
-        rp::usb::Driver::new(p.USB, Irqs)
+        let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
+        (usb_driver,)
     };
-    // Launch a task
     let fut_task_usb = task_usb(usb_driver);
     fut_task_usb.await;
 }
 
-//-----------------------------------------------------------------------------
-// USB task
-//-----------------------------------------------------------------------------
 async fn task_usb(usb_driver: impl usb::driver::Driver<'static>) {
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
@@ -143,9 +139,6 @@ async fn task_usb(usb_driver: impl usb::driver::Driver<'static>) {
     embassy_futures::join::join(fut_usb, fut_echo).await;
 }
 
-//-----------------------------------------------------------------------------
-// USBHandler
-//-----------------------------------------------------------------------------
 struct USBHandler {
     configured: atomic::AtomicBool,
 }
