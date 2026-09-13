@@ -1,5 +1,5 @@
 {% case template -%}
-{% when "GPIO In/Out" -%}
+{%- when "GPIO In/Out" -%}
 #![no_std]
 #![no_main]
 
@@ -42,7 +42,7 @@ where
         time::Timer::after_millis(30).await;    // debounce delay
     }
 }
-{% when "USB device CDC" -%}
+{%- when "USB device CDC" -%}
 #![no_std]
 #![no_main]
 
@@ -171,7 +171,7 @@ impl usb::Handler for USBHandler {
         self.configured.store(configured, atomic::Ordering::Relaxed);
     }
 }
-{% when "Wi-Fi HTTP Client -%}
+{%- when "Wi-Fi HTTP Client" -%}
 #![no_std]
 #![no_main]
 
@@ -365,4 +365,4 @@ async fn run_http_client(net_stack: net::Stack<'_>) -> ! {
         time::Timer::after_secs(5).await;
     }
 }
-{% endcase -%}
+{%- endcase -%}
