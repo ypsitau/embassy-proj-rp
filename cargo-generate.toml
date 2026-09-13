@@ -1,6 +1,6 @@
 [template]
 cargo_generate_version = ">=0.18.0"
-copy_without_render = ["cyw43-firmware"]
+exclude = ["cyw43-firmware"]
 
 [placeholders.template]
 prompt = "Choose a template"
