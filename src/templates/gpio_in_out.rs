@@ -1,3 +1,6 @@
+#![no_std]
+#![no_main]
+
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp as rp;

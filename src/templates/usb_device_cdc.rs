@@ -1,3 +1,6 @@
+#![no_std]
+#![no_main]
+
 use core::sync::atomic;
 use defmt::info;
 use embassy_executor::Spawner;
