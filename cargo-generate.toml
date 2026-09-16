@@ -12,5 +12,5 @@ choices = [
 default = "GPIO In/Out"
 type = "string"
 
-[conditional.'not(template == "Wi-Fi HTTP Client")']
+[conditional.'template != "Wi-Fi HTTP Client"']
 ignore = ["cyw43-firmware", "src/private_info.rs"]
