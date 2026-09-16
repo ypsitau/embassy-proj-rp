@@ -1,8 +1,381 @@
 {%- case template -%}
 {%- when "GPIO In/Out" -%}
-{%- render "gpio_in_out" -%}
+#![no_std]
+#![no_main]
+
+use defmt::info;
+use embassy_executor::Spawner;
+use embassy_rp as rp;
+use embassy_time as time;
+use embedded_hal_1 as hal;
+use embedded_hal_async as hal_async;
+use {defmt_rtt as _, panic_probe as _};
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let (pin_sw, pin_led) = {
+        let p = rp::init(Default::default());
+        let pin_sw = rp::gpio::Input::new(p.PIN_15, rp::gpio::Pull::Up);
+        let pin_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
+        (pin_sw, pin_led)
+    };
+    let fut_task_pin_in_out = task_pin_in_out(pin_sw, pin_led);
+    fut_task_pin_in_out.await;
+}
+
+async fn task_pin_in_out<InputPin, OutputPin>(mut pin_sw: InputPin, mut pin_led: OutputPin)
+where
+    InputPin: hal::digital::InputPin + hal_async::digital::Wait,
+    OutputPin: hal::digital::OutputPin,
+{
+    info!("Starting task_pin_in_out");
+    loop {
+        let is_pushed = pin_sw.is_low().unwrap();
+        if is_pushed {
+            info!("Button pressed");
+            pin_led.set_high().ok();
+        } else {
+            info!("Button released");
+            pin_led.set_low().ok();
+        }
+        pin_sw.wait_for_any_edge().await.ok();
+        time::Timer::after_millis(30).await;    // debounce delay
+    }
+}
 {%- when "USB device CDC" -%}
-{%- render "usb_device_cdc" -%}
+#![no_std]
+#![no_main]
+
+use core::sync::atomic;
+use defmt::info;
+use embassy_executor::Spawner;
+use embassy_rp as rp;
+use embassy_usb as usb;
+use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
+
+rp::bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
+});
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let (usb_driver,) = {
+        let p = rp::init(Default::default());
+        let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
+        (usb_driver,)
+    };
+    let fut_task_usb = task_usb(usb_driver);
+    fut_task_usb.await;
+}
+
+async fn task_usb(usb_driver: impl usb::driver::Driver<'static>) {
+    let mut usb_builder = {
+        const VID: u16 = 0xc0de;
+        const PID: u16 = 0xcafe;
+        const CONFIG_DESCRIPTOR_SIZE: usize = 256;
+        const BOS_DESCRIPTOR_SIZE: usize = 256;
+        const MSOS_DESCRIPTOR_SIZE: usize = 256;
+        const CONTROL_BUF_SIZE: usize = 64;
+        let mut usb_config = usb::Config::new(VID, PID);
+        usb_config.manufacturer = Some("Embassy");
+        usb_config.product = Some("hoge");
+        usb_config.serial_number = Some("12345678");
+        usb_config.max_power = 100;
+        usb_config.max_packet_size_0 = CONTROL_BUF_SIZE as u8;
+        let config_descriptor_buf = {
+            static STATIC_CELL: StaticCell<[u8; CONFIG_DESCRIPTOR_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; CONFIG_DESCRIPTOR_SIZE])
+        };
+        let bos_descriptor_buf = {
+            static STATIC_CELL: StaticCell<[u8; BOS_DESCRIPTOR_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; BOS_DESCRIPTOR_SIZE])
+        };
+        let msos_descriptor_buf = {
+            static STATIC_CELL: StaticCell<[u8; MSOS_DESCRIPTOR_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; MSOS_DESCRIPTOR_SIZE])
+        };
+        let control_buf = {
+            static STATIC_CELL: StaticCell<[u8; CONTROL_BUF_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; CONTROL_BUF_SIZE])
+        };
+        let usb_handler = {
+            static STATIC_CELL: StaticCell<USBHandler> = StaticCell::new();
+            STATIC_CELL.init(USBHandler::new())
+        };
+        let mut usb_builder = usb::Builder::new(usb_driver, usb_config,
+            config_descriptor_buf, bos_descriptor_buf, msos_descriptor_buf, control_buf);
+        usb_builder.handler(usb_handler);
+        usb_builder
+    };
+    let cdc_driver = {
+        let state = {
+            static STATE: StaticCell<usb::class::cdc_acm::State> = StaticCell::new();
+            STATE.init(usb::class::cdc_acm::State::new())
+        };
+        let max_packet_size = 64;
+        usb::class::cdc_acm::CdcAcmClass::new(&mut usb_builder, state, max_packet_size)
+    };
+    let mut usb_device = usb_builder.build();
+    let fut_usb = usb_device.run();
+    let fut_echo = async {
+        let (mut cdc_sender, mut cdc_receiver) = cdc_driver.split();
+        let buf = {
+            static STATIC_CELL: StaticCell<[u8; 64]> = StaticCell::new();
+            STATIC_CELL.init([0u8; 64])
+        };
+        loop {
+            cdc_receiver.wait_connection().await;
+            info!("Connected");
+            let e = loop {
+                let buf_read = match cdc_receiver.read_packet(buf).await {
+                    Ok(n) => &buf[..n], Err(e) => break e,
+                };
+                if let Err(e) = cdc_sender.write_packet(buf_read).await { break e; }
+            };
+            if e != usb::driver::EndpointError::Disabled { break; }
+        };
+    };
+    embassy_futures::join::join(fut_usb, fut_echo).await;
+}
+
+struct USBHandler {
+    configured: atomic::AtomicBool,
+}
+
+impl USBHandler {
+    fn new() -> Self {
+        USBHandler { configured: atomic::AtomicBool::new(false), }
+    }
+}
+
+impl usb::Handler for USBHandler {
+    /// Called when the USB device has been enabled or disabled.
+    fn enabled(&mut self, enabled: bool) {
+        info!("usb::Handler.enabled({})", enabled);
+        self.configured.store(false, atomic::Ordering::Relaxed);
+    }
+    /// Called after a USB reset after the bus reset sequence is complete.
+    fn reset(&mut self) {
+        info!("usb::Handler.reset()");
+        self.configured.store(false, atomic::Ordering::Relaxed);
+    }
+    /// Called when the host has set the address of the device to `addr`.
+    fn addressed(&mut self, addr: u8) {
+        info!("usb::Handler.addressed(addr: {})", addr);
+        self.configured.store(false, atomic::Ordering::Relaxed);
+    }
+    /// Called when the host has enabled or disabled the configuration of the device.
+    fn configured(&mut self, configured: bool) {
+        info!("usb::Handler.configured(configured: {})", configured);
+        self.configured.store(configured, atomic::Ordering::Relaxed);
+    }
+}
 {%- when "Wi-Fi HTTP Client" -%}
-{%- render "wifi_http_client" -%}
+#![no_std]
+#![no_main]
+
+use defmt::*;
+use embassy_executor::Spawner;
+use embassy_futures as futures;
+use embassy_net as net;
+use embassy_rp as rp;
+use embassy_time as time;
+use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
+
+mod private_info;
+
+rp::bind_interrupts!(struct Irqs {
+    PIO0_IRQ_0 => rp::pio::InterruptHandler<rp::peripherals::PIO0>;
+    DMA_IRQ_0 => rp::dma::InterruptHandler<rp::peripherals::DMA_CH0>;
+});
+
+#[embassy_executor::task]
+async fn cyw43_task(cyw43_runner: cyw43::Runner<'static, cyw43::SpiBus<rp::gpio::Output<'static>, cyw43_pio::PioSpi<'static, rp::peripherals::PIO0, 0>>>) -> ! {
+    cyw43_runner.run().await;
+}
+
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
+    let (net_driver, mut cyw43_control) =  {
+        const PRE_DOWNLOAD_FIRMWARE: bool = true;
+        let pin_pwr = p.PIN_23;
+        let pin_dio = p.PIN_24;
+        let pin_cs = p.PIN_25;
+        let pin_clk = p.PIN_29;
+        let state = {
+            static STATIC_CELL: StaticCell<cyw43::State> = StaticCell::new();
+            STATIC_CELL.init(cyw43::State::new())
+        };
+        let pwr = rp::gpio::Output::new(pin_pwr, rp::gpio::Level::Low);
+        let spi = {
+            let mut pio = rp::pio::Pio::new(p.PIO0, Irqs);
+            let sm = pio.sm0;
+            let clock_divider = cyw43_pio::DEFAULT_CLOCK_DIVIDER;
+            let irq = pio.irq0;
+            let cs = rp::gpio::Output::new(pin_cs, rp::gpio::Level::High);
+            let dma = rp::dma::Channel::new(p.DMA_CH0, Irqs);
+            cyw43_pio::PioSpi::new(&mut pio.common, sm, clock_divider, irq, cs, pin_dio, pin_clk, dma)
+        };
+        let (fw, cyw43_clm) = if PRE_DOWNLOAD_FIRMWARE {
+            // Use pre-downloaded firmware
+            // $ probe-rs download cyw43-firmware/43439A0.bin --binary-format bin --chip RP2040 --base-address 0x10180000
+            // $ probe-rs download cyw43-firmware/43439A0_clm.bin --binary-format bin --chip RP2040 --base-address 0x101c0000
+            let fw = unsafe {
+                &*(core::ptr::slice_from_raw_parts(0x10180000 as *const u8, 231077)
+                    as *const cyw43::Aligned<cyw43::A4, [u8]>)
+            };
+            let cyw43_clm = unsafe {
+                &*(core::ptr::slice_from_raw_parts(0x101c0000 as *const u8, 984)
+                    as *const cyw43::Aligned<cyw43::A4, [u8]>)
+            };
+            (fw, cyw43_clm)
+        } else {
+            let fw = cyw43::aligned_bytes!("../cyw43-firmware/43439A0.bin");
+            let cyw43_clm = cyw43::aligned_bytes!("../cyw43-firmware/43439A0_clm.bin");
+            (fw, cyw43_clm)
+        };
+        let nvram = cyw43::aligned_bytes!("../cyw43-firmware/nvram_rp2040.bin");
+        let (net_driver, mut cyw43_control, cyw43_runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
+        spawner.spawn(cyw43_task(cyw43_runner).unwrap());
+        cyw43_control.init(cyw43_clm).await;
+        cyw43_control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
+        let ssid = private_info::WIFI_SSID;
+        let join_options = cyw43::JoinOptions::new(private_info::WIFI_PASSWORD.as_bytes());
+        while let Err(err) = cyw43_control.join(ssid, join_options.clone()).await {
+            info!("join failed: {:?}", err);
+        }
+        (net_driver, cyw43_control)
+    };
+    let (net_stack, mut net_runner) = {
+        const USE_DHCP: bool = true;
+        let config = if USE_DHCP {
+            net::Config::dhcpv4(Default::default())
+        } else {
+            let address = net::Ipv4Cidr::new(net::Ipv4Address::new(192, 168, 0, 100), 24);
+            let mut dns_servers = heapless::Vec::<net::Ipv4Address, 3>::new();
+            dns_servers.push(net::Ipv4Address::new(192, 168, 0, 1)).unwrap();
+            let gateway = Some(net::Ipv4Address::new(192, 168, 0, 1));
+            net::Config::ipv4_static(net::StaticConfigV4 {address, dns_servers, gateway})
+        };
+        let resources = {
+            static STATIC_CELL: StaticCell<net::StackResources<3>> = StaticCell::new();
+            STATIC_CELL.init(net::StackResources::new())
+        };
+        let mut rng = rp::clocks::RoscRng;
+        let seed = rng.next_u64();
+        let (net_stack, net_runner) = net::new(net_driver, config, resources, seed);
+        (net_stack, net_runner)
+    };
+    let fut_net_runner = net_runner.run();
+    let fut_main = async {
+        info!("waiting for link...");
+        net_stack.wait_link_up().await;
+        info!("waiting for DHCP...");
+        net_stack.wait_config_up().await;
+        info!("Stack is up!");
+        run_http_client(net_stack).await;
+    };
+    let fut_blinky = async {
+        loop {
+            cyw43_control.gpio_set(0, true).await;
+            time::Timer::after_millis(300).await;
+            cyw43_control.gpio_set(0, false).await;
+            time::Timer::after_millis(300).await;
+        }
+    };
+    futures::join::join3(fut_main, fut_net_runner, fut_blinky).await;
+}
+
+async fn run_http_client(net_stack: net::Stack<'_>) -> ! {
+    const USE_TLS: bool = false;
+    let client_state = {
+        const N: usize = 1;
+        const TX_SZ: usize = 4096;
+        const RX_SZ: usize = 4096;
+        static STATIC_CELL: StaticCell<net::tcp::client::TcpClientState<N, TX_SZ, RX_SZ>> = StaticCell::new();
+        STATIC_CELL.init(net::tcp::client::TcpClientState::<N, TX_SZ, RX_SZ>::new())
+    };
+    let buf_response = {
+        const SIZE: usize = 4096;
+        static STATIC_CELL: StaticCell<[u8; SIZE]> = StaticCell::new();
+        STATIC_CELL.init([0; SIZE])
+    };
+    loop {
+        let tcp_client = net::tcp::client::TcpClient::new(net_stack, client_state);
+        let dns_socket = net::dns::DnsSocket::new(net_stack);
+        let (mut http_client, url) = if USE_TLS {
+            let tls_read_buffer = {
+                static STATIC_CELL: StaticCell<[u8; 16640]> = StaticCell::new();
+                STATIC_CELL.init([0u8; 16640])
+            };
+            let tls_write_buffer = {
+                static STATIC_CELL: StaticCell<[u8; 16640]> = StaticCell::new();
+                STATIC_CELL.init([0u8; 16640])
+            };
+            let tls_config = {
+                let mut rng = rp::clocks::RoscRng;
+                let seed = rng.next_u64();
+                reqwless::client::TlsConfig::new(seed, tls_read_buffer, tls_write_buffer, reqwless::client::TlsVerify::None)
+            };
+            let http_client = reqwless::client::HttpClient::new_with_tls(&tcp_client, &dns_socket, tls_config);
+            let url = "https://httpbin.org/json";
+            (http_client, url)
+        } else {
+            let http_client = reqwless::client::HttpClient::new(&tcp_client, &dns_socket);
+            let url = "http://httpbin.org/json";
+            (http_client, url)
+        };
+        info!("connecting to {}", &url);
+        let mut request = match http_client.request(reqwless::request::Method::GET, url).await {
+            Ok(request) => request,
+            Err(e) => {
+                error!("Failed to make HTTP request: {:?}", e);
+                time::Timer::after_secs(5).await;
+                continue;
+            }
+        };
+        let response = match request.send(buf_response).await {
+            Ok(response) => response,
+            Err(e) => {
+                error!("Failed to send HTTP request: {:?}", e);
+                time::Timer::after_secs(5).await;
+                continue;
+            }
+        };
+        info!("Response status: {}", response.status.0);
+        let body_bytes = match response.body().read_to_end().await {
+            Ok(body_bytes) => body_bytes,
+            Err(_e) => {
+                error!("Failed to read response body");
+                time::Timer::after_secs(5).await;
+                continue;
+            }
+        };
+        info!("Response body length: {} bytes", body_bytes.len());
+        #[derive(serde::Deserialize)]
+        struct SlideShow<'a> {
+            author: &'a str,
+            title: &'a str,
+        }
+        #[derive(serde::Deserialize)]
+        struct HttpBinResponse<'a> {
+            #[serde(borrow)]
+            slideshow: SlideShow<'a>,
+        }
+        match serde_json_core::from_slice::<HttpBinResponse>(body_bytes) {
+            Ok((output, _used)) => {
+                info!("Successfully parsed JSON response!");
+                info!("Slideshow title: {:?}", output.slideshow.title);
+                info!("Slideshow author: {:?}", output.slideshow.author);
+            }
+            Err(e) => {
+                error!("Failed to parse JSON response: {}", Debug2Format(&e));
+            }
+        }
+        time::Timer::after_secs(5).await;
+    }
+}
 {%- endcase -%}
