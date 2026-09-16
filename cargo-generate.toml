@@ -1,11 +1,6 @@
 [template]
 cargo_generate_version = ">=0.18.0"
-exclude = [
-    "cyw43-firmware",
-    "src/gpio_in_out.liquid",
-    "src/usb_device_cdc.liquid",
-    "src/wifi_http_client.liquid"
-]
+exclude = ["cyw43-firmware"]
 
 [placeholders.template]
 prompt = "Choose a template"
@@ -17,14 +12,5 @@ choices = [
 default = "GPIO In/Out"
 type = "string"
 
-[conditional.'template != "Wi-Fi HTTP Client"']
+[conditional.'not(template == "Wi-Fi HTTP Client")']
 ignore = ["cyw43-firmware", "src/private_info.rs"]
-
-#[conditional.'template != "Wi-Fi HTTP Client"']
-#ignore = ["cyw43-firmware", "src/private_info.rs", "src/templates/wifi_http_client.rs"]
-#
-#[conditional.'template != "GPIO In/Out"']
-#ignore = ["src/templates/gpio_in_out.rs"]
-#
-#[conditional.'template != "USB device CDC"']
-#ignore = ["src/templates/usb_device_cdc.rs"]
