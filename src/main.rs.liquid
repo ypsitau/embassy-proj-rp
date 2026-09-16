@@ -1,0 +1,11 @@
+#![no_std]
+#![no_main]
+
+{% case template %}
+{%- when "GPIO In/Out" -%}
+include!("templates/gpio_in_out.rs");
+{%- when "USB device CDC" -%}
+include!("templates/usb_device_cdc.rs");
+{%- when "Wi-Fi HTTP Client" -%}
+include!("templates/wifi_http_client.rs");
+{%- endcase -%}
