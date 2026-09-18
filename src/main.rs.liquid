@@ -536,6 +536,110 @@ impl usb::class::hid::RequestHandler for HidRequestHandler {
         info!("hid::RequestHandler.set_idle_ms(id: {:?}, dur: {:?})", id, dur);
     }
 }
+{%- when "I2C SSD1306" -%}
+#![no_std]
+#![no_main]
+
+use defmt::info;
+use core::fmt::Write as _;
+use embassy_executor::Spawner;
+use embassy_embedded_hal::shared_bus;
+use embassy_sync as sync;
+use embassy_time as time;
+use heapless::String;
+use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
+
+use embassy_rp as rp;
+
+rp::bind_interrupts!(struct Irqs {
+    I2C0_IRQ => rp::i2c::InterruptHandler<rp::peripherals::I2C0>;
+});
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let (i2c_ssd1306,) = {
+        type MutexI2C0 = sync::mutex::Mutex<
+            sync::blocking_mutex::raw::NoopRawMutex,
+            rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>>;
+        let p = rp::init(Default::default());
+        let mutex_i2c0 = {
+            let pin_sda = p.PIN_16;
+            let pin_scl = p.PIN_17;
+            let mut config = rp::i2c::Config::default();
+            config.frequency = 400_000;
+            static STATIC_CELL: StaticCell<MutexI2C0> = StaticCell::new();
+            STATIC_CELL.init(MutexI2C0::new(rp::i2c::I2c::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
+        };
+        let i2c_ssd1306 = shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
+        (i2c_ssd1306,)
+    };
+    let fut_task_display = task_display(i2c_ssd1306);
+    fut_task_display.await;
+}
+
+async fn task_display(i2c_ssd1306: impl embedded_hal_async::i2c::I2c) {
+    info!("Starting display task");
+    use ssd1306::prelude::*;
+    use embedded_graphics as eg;
+    use embedded_graphics::prelude::*;
+    enum Direction { Inc, Dec }
+    impl Direction {
+        fn step(&self, value: &mut i32) {
+            *value += match self { Self::Inc => 1, Self::Dec => -1 };
+        }
+    }
+    let mut display = {
+        let interface = ssd1306::I2CDisplayInterface::new(i2c_ssd1306);
+        let size = ssd1306::size::DisplaySize128x64;
+        let rotation = ssd1306::rotation::DisplayRotation::Rotate0;
+        ssd1306::Ssd1306Async::new(interface, size, rotation).into_buffered_graphics_mode()
+    };
+    display.init().await.unwrap();
+    let text_style = eg::mono_font::MonoTextStyleBuilder::new()
+        .font(&eg::mono_font::ascii::FONT_10X20)
+        .text_color(eg::pixelcolor::BinaryColor::On)
+        .build();
+    let mut sbuf: String<16> = String::new();
+    let style_dot = eg::primitives::PrimitiveStyleBuilder::new()
+        .fill_color(eg::pixelcolor::BinaryColor::On)
+        .build();
+    let size_display = {
+        let (width, height) = display.dimensions();
+        Size::new(width as u32, height as u32)
+    };
+    let size_dot = Size::new(8, 8);
+    let mut i_frame = 0;
+    let (mut x, mut y) = (size_display.width as i32 / 2, size_display.height as i32 / 2);
+    let (mut x_dir, mut y_dir) = (Direction::Inc, Direction::Inc);
+    let mut ticker = time::Ticker::every(time::Duration::from_millis(10));
+    loop {
+        display.clear(eg::pixelcolor::BinaryColor::Off).unwrap();
+        sbuf.clear();
+        write!(sbuf, "Frame: {}", i_frame).unwrap();
+        eg::text::Text::with_baseline(
+            sbuf.as_str(), Point::new(0, 0), text_style, eg::text::Baseline::Top
+        ).draw(&mut display).unwrap();
+        eg::primitives::Rectangle::new(
+            Point::new(x, y), size_dot
+        ).into_styled(style_dot).draw(&mut display).unwrap();
+        i_frame += 1;
+        if x >= (size_display.width - size_dot.width) as i32 {
+            x_dir = Direction::Dec;
+        } else if x <= 0 {
+            x_dir = Direction::Inc;
+        }
+        if y >= (size_display.height - size_dot.height) as i32 {
+            y_dir = Direction::Dec;
+        } else if y <= 0 {
+            y_dir = Direction::Inc;
+        }
+        x_dir.step(&mut x);
+        y_dir.step(&mut y);
+        display.flush().await.unwrap();
+        ticker.next().await;
+    }
+}
 {%- when "Wi-Fi HTTP Client" -%}
 #![no_std]
 #![no_main]

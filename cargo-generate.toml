@@ -10,6 +10,7 @@ choices = [
     "UART Echo",
     "USB Device CDC",
     "USB Device HID Keyboard and Mouse",
+    "I2C SSD1306",
     "Wi-Fi HTTP Client"
 ]
 default = "Blinky"
