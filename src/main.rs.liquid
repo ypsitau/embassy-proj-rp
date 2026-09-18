@@ -5,10 +5,11 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp as rp;
 use embassy_time as time;
 use embedded_hal_1 as hal;
 use {defmt_rtt as _, panic_probe as _};
+
+use embassy_rp as rp;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -38,11 +39,12 @@ async fn task_blinky(mut pin_led: impl hal::digital::OutputPin)
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp as rp;
 use embassy_time as time;
 use embedded_hal_1 as hal;
 use embedded_hal_async as hal_async;
 use {defmt_rtt as _, panic_probe as _};
+
+use embassy_rp as rp;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -82,10 +84,11 @@ where
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp as rp;
 use embedded_io_async as io_async;
 use {defmt_rtt as _, panic_probe as _};
 use static_cell::StaticCell;
+
+use embassy_rp as rp;
 
 rp::bind_interrupts!(struct Irqs {
     UART0_IRQ => rp::uart::BufferedInterruptHandler<rp::peripherals::UART0>;
@@ -144,10 +147,11 @@ async fn task_echo(mut writer: impl io_async::Write, mut reader: impl io_async::
 use core::sync::atomic;
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp as rp;
 use embassy_usb as usb;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+use embassy_rp as rp;
 
 rp::bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
@@ -273,14 +277,15 @@ impl usb::Handler for USBHandler {
 use core::sync::atomic;
 use defmt::{info, warn};
 use embassy_executor::Spawner;
-use embassy_rp as rp;
 use embassy_time as time;
 use embassy_usb as usb;
 use embedded_hal_1 as hal;
 use embedded_hal_async as hal_async;
-use usbd_hid::descriptor::SerializedDescriptor;
+use usbd_hid::descriptor::SerializedDescriptor as _;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+use embassy_rp as rp;
 
 rp::bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
