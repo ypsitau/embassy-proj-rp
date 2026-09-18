@@ -1,4 +1,37 @@
 {%- case template -%}
+{%- when "Blinky" -%}
+#![no_std]
+#![no_main]
+
+use defmt::info;
+use embassy_executor::Spawner;
+use embassy_rp as rp;
+use embassy_time as time;
+use embedded_hal_1 as hal;
+use {defmt_rtt as _, panic_probe as _};
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let (pin_led,) = {
+        let p = rp::init(Default::default());
+        let pin_led = p.PIN_25;
+        let pin_led = rp::gpio::Output::new(pin_led, rp::gpio::Level::Low);
+        (pin_led,)
+    };
+    let fut_task_blinky = task_blinky(pin_led);
+    fut_task_blinky.await;
+}
+
+async fn task_blinky(mut pin_led: impl hal::digital::OutputPin)
+{
+    info!("Starting task_blinky");
+    loop {
+        pin_led.set_high().ok();
+        time::Timer::after_millis(500).await;
+        pin_led.set_low().ok();
+        time::Timer::after_millis(500).await;
+    }
+}
 {%- when "GPIO In/Out" -%}
 #![no_std]
 #![no_main]
@@ -15,8 +48,9 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let (pin_sw, pin_led) = {
         let p = rp::init(Default::default());
-        let pin_sw = rp::gpio::Input::new(p.PIN_15, rp::gpio::Pull::Up);
-        let pin_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
+        let (pin_sw, pin_led) = (p.PIN_15, p.PIN_25);
+        let pin_sw = rp::gpio::Input::new(pin_sw, rp::gpio::Pull::Up);
+        let pin_led = rp::gpio::Output::new(pin_led, rp::gpio::Level::Low);
         (pin_sw, pin_led)
     };
     let fut_task_pin_in_out = task_pin_in_out(pin_sw, pin_led);
@@ -200,11 +234,8 @@ async fn cyw43_task(cyw43_runner: cyw43::Runner<'static, cyw43::SpiBus<rp::gpio:
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let (net_driver, mut cyw43_control) =  {
+        let (pin_pwr, pin_dio, pin_cs, pin_clk) = (p.PIN_23, p.PIN_24, p.PIN_25, p.PIN_29);
         const PRE_DOWNLOAD_FIRMWARE: bool = true;
-        let pin_pwr = p.PIN_23;
-        let pin_dio = p.PIN_24;
-        let pin_cs = p.PIN_25;
-        let pin_clk = p.PIN_29;
         let state = {
             static STATIC_CELL: StaticCell<cyw43::State> = StaticCell::new();
             STATIC_CELL.init(cyw43::State::new())
