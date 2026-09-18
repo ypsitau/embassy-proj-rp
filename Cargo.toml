@@ -32,11 +32,14 @@ embedded-io-async = { version = "0.7" }
 
 {% case template %}
 {%- when "GPIO In/Out" -%}
-{%- when "USB device CDC" -%}
+{%- when "USB Device CDC" -%}
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-usb-driver = { version = "0.2.2", features = ["defmt"] }
-
-{% when "Wi-Fi HTTP Client" -%}
+{%- when "USB Device HID Keyboard and Mouse" -%}
+embassy-usb = { version = "0.6.0", features = ["defmt"] }
+embassy-usb-driver = { version = "0.2.2", features = ["defmt"] }
+usbd-hid = { version = "0.10.2" }
+{%- when "Wi-Fi HTTP Client" -%}
 embassy-net = { version = "0.9.1", features = [
     "defmt",
     "icmp",
@@ -58,8 +61,8 @@ reqwless = { git = "https://github.com/drogue-iot/reqwless",
 }
 serde = { version = "1.0.229", default-features = false, features = ["derive"] }
 serde-json-core = { version = "0.5.1" }
+{%- endcase %}
 
-{% endcase -%}
 [target.'cfg( target_arch = "arm" )'.dependencies]
 panic-probe = { version = "1", features = ["print-defmt"] }
 

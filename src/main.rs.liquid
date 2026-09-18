@@ -137,7 +137,7 @@ async fn task_echo(mut writer: impl io_async::Write, mut reader: impl io_async::
         }
     }
 }
-{%- when "USB device CDC" -%}
+{%- when "USB Device CDC" -%}
 #![no_std]
 #![no_main]
 
@@ -264,6 +264,271 @@ impl usb::Handler for USBHandler {
     fn configured(&mut self, configured: bool) {
         info!("usb::Handler.configured(configured: {})", configured);
         self.configured.store(configured, atomic::Ordering::Relaxed);
+    }
+}
+{%- when "USB Device HID Keyboard and Mouse" -%}
+#![no_std]
+#![no_main]
+
+use core::sync::atomic;
+use defmt::{info, warn};
+use embassy_executor::Spawner;
+use embassy_rp as rp;
+use embassy_time as time;
+use embassy_usb as usb;
+use embedded_hal_1 as hal;
+use embedded_hal_async as hal_async;
+use usbd_hid::descriptor::SerializedDescriptor;
+use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
+
+rp::bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
+});
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let (usb_driver, pin_button_a, pin_button_b, pin_button_left, pin_button_up, pin_button_down, pin_button_right) = {
+        let p = rp::init(Default::default());
+        let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
+        let pin_button_a = rp::gpio::Input::new(p.PIN_16, rp::gpio::Pull::Up);
+        let pin_button_b = rp::gpio::Input::new(p.PIN_17, rp::gpio::Pull::Up);
+        let pin_button_left = rp::gpio::Input::new(p.PIN_18, rp::gpio::Pull::Up);
+        let pin_button_up = rp::gpio::Input::new(p.PIN_19, rp::gpio::Pull::Up);
+        let pin_button_down = rp::gpio::Input::new(p.PIN_20, rp::gpio::Pull::Up);
+        let pin_button_right = rp::gpio::Input::new(p.PIN_21, rp::gpio::Pull::Up);
+        (usb_driver, pin_button_a, pin_button_b, pin_button_left, pin_button_up, pin_button_down, pin_button_right)
+    };
+    let fut_task_usb = task_usb(usb_driver, pin_button_a, pin_button_b, pin_button_left, pin_button_up, pin_button_down, pin_button_right);
+    fut_task_usb.await;
+}
+
+async fn task_usb<InputPin>(
+    usb_driver: impl usb::driver::Driver<'static>,
+    mut pin_button_a: InputPin, mut pin_button_b: InputPin,
+    mut pin_button_left: InputPin, mut pin_button_up: InputPin,
+    mut pin_button_down: InputPin, mut pin_button_right: InputPin,
+)
+where
+    InputPin: hal::digital::InputPin + hal_async::digital::Wait,
+{
+    info!("Starting USB task");
+    let mut usb_builder = {
+        const VID: u16 = 0xc0de;
+        const PID: u16 = 0xcafe;
+        const CONFIG_DESCRIPTOR_SIZE: usize = 256;
+        const BOS_DESCRIPTOR_SIZE: usize = 256;
+        const MSOS_DESCRIPTOR_SIZE: usize = 256;
+        const CONTROL_BUF_SIZE: usize = 64;
+        let mut usb_config = usb::Config::new(VID, PID);
+        usb_config.manufacturer = Some("Embassy");
+        usb_config.product = Some("hoge");
+        usb_config.serial_number = Some("12345678");
+        usb_config.max_power = 100;
+        usb_config.max_packet_size_0 = CONTROL_BUF_SIZE as u8;
+        let config_descriptor_buf = {
+            static STATIC_CELL: StaticCell<[u8; CONFIG_DESCRIPTOR_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; CONFIG_DESCRIPTOR_SIZE])
+        };
+        let bos_descriptor_buf = {
+            static STATIC_CELL: StaticCell<[u8; BOS_DESCRIPTOR_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; BOS_DESCRIPTOR_SIZE])
+        };
+        let msos_descriptor_buf = {
+            static STATIC_CELL: StaticCell<[u8; MSOS_DESCRIPTOR_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; MSOS_DESCRIPTOR_SIZE])
+        };
+        let control_buf = {
+            static STATIC_CELL: StaticCell<[u8; CONTROL_BUF_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; CONTROL_BUF_SIZE])
+        };
+        let usb_handler = {
+            static STATIC_CELL: StaticCell<USBHandler> = StaticCell::new();
+            STATIC_CELL.init(USBHandler::new())
+        };
+        let mut usb_builder = usb::Builder::new(usb_driver, usb_config,
+            config_descriptor_buf, bos_descriptor_buf, msos_descriptor_buf, control_buf);
+        usb_builder.handler(usb_handler);
+        usb_builder
+    };
+    let (hid_keyboard_reader, mut hid_keyboard_writer) = {
+        let state = {
+            static STATIC_CELL: StaticCell<usb::class::hid::State> = StaticCell::new();
+            STATIC_CELL.init(usb::class::hid::State::new())
+        };
+        let config = usb::class::hid::Config {
+            report_descriptor: usbd_hid::descriptor::KeyboardReport::desc(),
+            request_handler: None,
+            poll_ms: 60,
+            max_packet_size: 64,
+            hid_subclass: usb::class::hid::HidSubclass::Boot,
+            hid_boot_protocol: usb::class::hid::HidBootProtocol::Keyboard,
+        };
+        usb::class::hid::HidReaderWriter::<_, 1, 8>::new(&mut usb_builder, state, config).split()
+    };
+    let (hid_mouse_reader, mut hid_mouse_writer) = {
+        let state = {
+            static STATIC_CELL: StaticCell<usb::class::hid::State> = StaticCell::new();
+            STATIC_CELL.init(usb::class::hid::State::new())
+        };
+        let config = usb::class::hid::Config {
+            report_descriptor: usbd_hid::descriptor::MouseReport::desc(),
+            request_handler: None,
+            poll_ms: 60,
+            max_packet_size: 64,
+            hid_subclass: usb::class::hid::HidSubclass::Boot,
+            hid_boot_protocol: usb::class::hid::HidBootProtocol::Mouse,
+        };
+        usb::class::hid::HidReaderWriter::<_, 1, 8>::new(&mut usb_builder, state, config).split()
+    };
+    let mut usb_device = usb_builder.build();
+    let fut_usb = usb_device.run();
+    let fut_hid_keyboard_writer = async {
+        loop {
+            let _= embassy_futures::select::select_array([
+                pin_button_left.wait_for_any_edge(),
+                pin_button_up.wait_for_any_edge(),
+                pin_button_down.wait_for_any_edge(),
+                pin_button_right.wait_for_any_edge(),
+            ]).await;
+            time::Timer::after_millis(30).await; // skip the bounding period
+            let mut n_keycodes = 0;
+            let mut keycodes = [0u8; 6];
+            if pin_button_left.is_low().unwrap() { keycodes[n_keycodes] = 0x50; n_keycodes += 1; }
+            if pin_button_up.is_low().unwrap() { keycodes[n_keycodes] = 0x52; n_keycodes += 1; }
+            if pin_button_down.is_low().unwrap() { keycodes[n_keycodes] = 0x51; n_keycodes += 1; }
+            if pin_button_right.is_low().unwrap() { keycodes[n_keycodes] = 0x4f; /* n_keycodes += 1; */ }
+            let keyboard_report = usbd_hid::descriptor::KeyboardReport {
+                modifier: 0,
+                reserved: 0,
+                leds: 0,
+                keycodes,
+            };
+            info!("Keyboard report: {:?}", keyboard_report.keycodes);
+            if let Err(e) = hid_keyboard_writer.write_serialize(&keyboard_report).await {
+                warn!("Failed to send report: {:?}", e);
+            }
+        }
+    };
+    let fut_hid_mouse_writer = async {
+        loop {
+            let mouse_report = usbd_hid::descriptor::MouseReport {
+                buttons: 0,
+                x: 0,
+                y: if pin_button_a.is_low().unwrap() {
+                    -20
+                } else if pin_button_b.is_low().unwrap() {
+                    20
+                } else {
+                    0
+                },
+                wheel: 0,
+                pan: 0,
+            };
+            if mouse_report.y != 0 {
+                info!("Mouse moved: y = {}", mouse_report.y);
+            }
+            if let Err(e) = hid_mouse_writer.write_serialize(&mouse_report).await {
+                warn!("Failed to send report: {:?}", e);
+            }
+            time::Timer::after_millis(100).await;
+        }
+    };
+    let fut_hid_keyboard_reader = async {
+        let mut hid_request_handler = HidRequestHandler::new();
+        hid_keyboard_reader.run(false, &mut hid_request_handler).await;
+    };
+    let fut_hid_mouse_reader = async {
+        let mut hid_request_handler = HidRequestHandler::new();
+        hid_mouse_reader.run(false, &mut hid_request_handler).await;
+    };
+    embassy_futures::join::join5(fut_usb, fut_hid_keyboard_writer, fut_hid_mouse_writer, fut_hid_keyboard_reader, fut_hid_mouse_reader).await;
+}
+
+struct USBHandler {
+    configured: atomic::AtomicBool,
+}
+
+impl USBHandler {
+    fn new() -> Self {
+        USBHandler { configured: atomic::AtomicBool::new(false), }
+    }
+}
+
+impl usb::Handler for USBHandler {
+    /// Called when the USB device has been enabled or disabled.
+    fn enabled(&mut self, enabled: bool) {
+        info!("usb::Handler.enabled({})", enabled);
+        self.configured.store(false, atomic::Ordering::Relaxed);
+    }
+    /// Called after a USB reset after the bus reset sequence is complete.
+    fn reset(&mut self) {
+        info!("usb::Handler.reset()");
+        self.configured.store(false, atomic::Ordering::Relaxed);
+    }
+    /// Called when the host has set the address of the device to `addr`.
+    fn addressed(&mut self, addr: u8) {
+        info!("usb::Handler.addressed(addr: {})", addr);
+        self.configured.store(false, atomic::Ordering::Relaxed);
+    }
+    /// Called when the host has enabled or disabled the configuration of the device.
+    fn configured(&mut self, configured: bool) {
+        info!("usb::Handler.configured(configured: {})", configured);
+        self.configured.store(configured, atomic::Ordering::Relaxed);
+    }
+}
+
+struct HidRequestHandler {
+    hid_protocol_mode: atomic::AtomicU8,
+}
+
+impl HidRequestHandler {
+    fn new() -> Self {
+        HidRequestHandler {
+            hid_protocol_mode: atomic::AtomicU8::new(usb::class::hid::HidProtocolMode::Boot as u8),
+        }
+    }
+}
+
+impl usb::class::hid::RequestHandler for HidRequestHandler {
+    // Reads the value of report `id` into `buf` returning the size.
+    // Returns `None` if `id` is invalid or no data is available.
+    fn get_report(&mut self, id: usb::class::hid::ReportId, _buf: &mut [u8]) -> Option<usize> {
+        info!("hid::RequestHander.get_report(id: {:?})", id);
+        None
+    }
+    // Sets the value of report `id` to `data`.
+    fn set_report(&mut self, id: usb::class::hid::ReportId, data: &[u8]) -> usb::control::OutResponse {
+        info!("hid::RequestHandler.set_report(id: {:?}, data: {:02x}", id, data);
+        usb::control::OutResponse::Accepted
+    }
+    // Gets the current hid protocol.
+    // Returns `Report` protocol by default.
+    fn get_protocol(&self) -> usb::class::hid::HidProtocolMode {
+        let mode = usb::class::hid::HidProtocolMode::from(self.hid_protocol_mode.load(atomic::Ordering::Relaxed));
+        info!("hid::RequestHandler.get_protocol() -> {}", mode);
+        mode
+    }
+    // Sets the current hid protocol to `protocol`.
+    // Accepts only `Report` protocol by default.
+    fn set_protocol(&mut self, protocol: usb::class::hid::HidProtocolMode) -> usb::control::OutResponse {
+        info!("hid::RequestHandler.set_protocol(protocol: {})", protocol);
+        self.hid_protocol_mode.store(protocol as u8, atomic::Ordering::Relaxed);
+        usb::control::OutResponse::Accepted
+    }
+    // Get the idle rate for `id`.
+    // If `id` is `None`, get the idle rate for all reports. Returning `None`
+    // will reject the control request. Any duration at or above 1.024 seconds
+    // or below 4ms will be returned as an indefinite idle rate.
+    fn get_idle_ms(&mut self, id: Option<usb::class::hid::ReportId>) -> Option<u32> {
+        info!("hid::RequestHandler.get_idle_ms(id: {:?})", id);
+        None
+    }
+    // Set the idle rate for `id` to `dur`.
+    // If `id` is `None`, set the idle rate of all input reports to `dur`. If
+    // an indefinite duration is requested, `dur` will be set to `u32::MAX`.
+    fn set_idle_ms(&mut self, id: Option<usb::class::hid::ReportId>, dur: u32) {
+        info!("hid::RequestHandler.set_idle_ms(id: {:?}, dur: {:?})", id, dur);
     }
 }
 {%- when "Wi-Fi HTTP Client" -%}
