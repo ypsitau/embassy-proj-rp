@@ -76,6 +76,67 @@ where
         time::Timer::after_millis(30).await;    // debounce delay
     }
 }
+{%- when "UART Echo" -%}
+#![no_std]
+#![no_main]
+
+use defmt::info;
+use embassy_executor::Spawner;
+use embassy_rp as rp;
+use embedded_io_async as io_async;
+use {defmt_rtt as _, panic_probe as _};
+use static_cell::StaticCell;
+
+rp::bind_interrupts!(struct Irqs {
+    UART0_IRQ => rp::uart::BufferedInterruptHandler<rp::peripherals::UART0>;
+});
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = rp::init(Default::default());
+    let (uart_tx, uart_rx) = {
+        let pin_tx = p.PIN_0;
+        let pin_rx = p.PIN_1;
+        let tx_buffer = { // should be replaced by make_static macro when it becomes available
+            const TX_BUFFER_SIZE: usize = 64;
+            static STATIC_CELL: StaticCell<[u8; TX_BUFFER_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; TX_BUFFER_SIZE])
+        };
+        let rx_buffer = { // should be replaced by make_static macro when it becomes available
+            const RX_BUFFER_SIZE: usize = 64;
+            static STATIC_CELL: StaticCell<[u8; RX_BUFFER_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; RX_BUFFER_SIZE])
+        };
+        let config = rp::uart::Config::default();
+        let uart = rp::uart::BufferedUart::new(p.UART0, pin_tx, pin_rx, Irqs, tx_buffer, rx_buffer, config);
+        let (uart_tx, uart_rx) = uart.split();
+        (uart_tx, uart_rx)
+    };
+    task_echo(uart_tx, uart_rx).await;
+}
+
+async fn task_echo(mut writer: impl io_async::Write, mut reader: impl io_async::Read) -> ! {
+    info!("Starting echo task");
+    const BUFSIZE: usize = 16;
+    let buf = {
+        static STATIC_CELL: StaticCell<[u8; BUFSIZE]> = StaticCell::new();
+        STATIC_CELL.init([0u8; BUFSIZE])
+    };
+    writer.write_all(b"Enter any keystrokes:\r\n").await.ok();
+    writer.flush().await.ok();
+    loop {
+        match reader.read(buf).await {
+            Ok(len) => {
+                writer.write_all(&buf[..len]).await.ok();
+                writer.flush().await.ok();
+            }
+            Err(_) => {
+                writer.write_all(b"error in reading\r\n").await.ok();
+                writer.flush().await.ok();
+            }
+        }
+    }
+}
 {%- when "USB device CDC" -%}
 #![no_std]
 #![no_main]

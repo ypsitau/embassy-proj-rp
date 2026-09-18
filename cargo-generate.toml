@@ -7,6 +7,7 @@ prompt = "Choose a template"
 choices = [
     "Blinky",
     "GPIO In/Out",
+    "UART Echo",
     "USB device CDC",
     "Wi-Fi HTTP Client"
 ]
