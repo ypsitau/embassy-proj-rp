@@ -537,6 +537,12 @@ impl usb::class::hid::RequestHandler for HidRequestHandler {
     }
 }
 {%- when "I2C SSD1306" -%}
+/// I2C SSD1306 example using Embassy and async/await.
+/// Pin Assignment:
+/// | SSD1306 | Raspberry Pi Pico |
+/// |---------|------------------|
+/// | SDA     | GPIO16           |
+/// | SCL     | GPIO17           |
 #![no_std]
 #![no_main]
 
