@@ -1,5 +1,6 @@
 {%- case template -%}
 {%- when "Blinky" -%}
+//! Blinky example using Embassy and async/await.
 #![no_std]
 #![no_main]
 
@@ -34,6 +35,12 @@ async fn task_blinky(mut pin_led: impl hal::digital::OutputPin)
     }
 }
 {%- when "GPIO In/Out" -%}
+//! GPIO In/Out example using Embassy and async/await.
+//!
+//! ## Pin Assignment
+//! | Raspberry Pi Pico | Function |
+//! |------------------|----------|
+//! | GPIO15           | Switch to GND  |
 #![no_std]
 #![no_main]
 
@@ -79,6 +86,13 @@ where
     }
 }
 {%- when "UART Echo" -%}
+//! UART Echo example using Embassy and async/await.
+//!
+//! ## Pin Assignment
+//! | Raspberry Pi Pico | Function |
+//! |------------------|----------|
+//! | GPIO0            | UART TX  |
+//! | GPIO1            | UART RX  |
 #![no_std]
 #![no_main]
 
@@ -141,6 +155,7 @@ async fn task_echo(mut writer: impl io_async::Write, mut reader: impl io_async::
     }
 }
 {%- when "USB Device CDC" -%}
+//! USB Device CDC example using Embassy and async/await.
 #![no_std]
 #![no_main]
 
@@ -271,6 +286,7 @@ impl usb::Handler for USBHandler {
     }
 }
 {%- when "USB Device HID Keyboard and Mouse" -%}
+//! USB Device HID Keyboard and Mouse example using Embassy and async/await.
 #![no_std]
 #![no_main]
 
@@ -537,12 +553,14 @@ impl usb::class::hid::RequestHandler for HidRequestHandler {
     }
 }
 {%- when "I2C SSD1306" -%}
-/// I2C SSD1306 example using Embassy and async/await.
-/// Pin Assignment:
-/// | SSD1306 | Raspberry Pi Pico |
-/// |---------|------------------|
-/// | SDA     | GPIO16           |
-/// | SCL     | GPIO17           |
+//! I2C SSD1306 example using Embassy and async/await.
+//!
+//! ## Pin Assignment
+//!
+//! | Raspberry Pi Pico | SSD1306 |
+//! |-------------------|---------|
+//! | GPIO16            | SDA     |
+//! | GPIO17            | SCL     |
 #![no_std]
 #![no_main]
 
