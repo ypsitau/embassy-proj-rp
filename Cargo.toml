@@ -8,7 +8,6 @@ license = "MIT or Apache-2.0"
 regex = { version = "1.11.0" }
 
 [dependencies]
-cortex-m-rt = { version = "0.7" }
 defmt = { version = "1" }
 defmt-rtt = { version = "1" }
 heapless = { version = "0.9.3" }
@@ -30,8 +29,7 @@ embedded-hal-1 = { version = "1.0", package = "embedded-hal" }
 embedded-hal-async = { version = "1.0.0", features = ["defmt-03"] }
 embedded-io-async = { version = "0.7" }
 
-{% case template %}
-{%- when "GPIO In/Out" -%}
+{% case template -%}
 {%- when "USB Device CDC" -%}
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-usb-driver = { version = "0.2.2", features = ["defmt"] }
@@ -53,14 +51,19 @@ embassy-net = { version = "0.9.1", features = [
     "proto-ipv6",
     "multicast",
 ] }
-cyw43 = { version = "0.7.0", features = ["defmt"] }
-cyw43-pio = { version = "0.10.0" }
 reqwless = { git = "https://github.com/drogue-iot/reqwless",
     rev = "68f703dfc16e6f7f964b7238c922c0d433118872",
     features = ["defmt"],
 }
 serde = { version = "1.0.229", default-features = false, features = ["derive"] }
 serde-json-core = { version = "0.5.1" }
+{%- endcase %}
+
+cortex-m-rt = { version = "0.7" }
+{% case template -%}
+{%- when "Wi-Fi HTTP Client" -%}
+cyw43 = { version = "0.7.0", features = ["defmt"] }
+cyw43-pio = { version = "0.10.0" }
 {%- endcase %}
 
 [target.'cfg( target_arch = "arm" )'.dependencies]
