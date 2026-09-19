@@ -592,8 +592,9 @@ async fn main(_spawner: Spawner) {
             let pin_scl = p.PIN_17;
             let mut config = rp::i2c::Config::default();
             config.frequency = 400_000;
+            let i2c0 = rp::i2c::I2c::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config);
             static STATIC_CELL: StaticCell<MutexI2C0> = StaticCell::new();
-            STATIC_CELL.init(MutexI2C0::new(rp::i2c::I2c::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
+            STATIC_CELL.init(MutexI2C0::new(i2c0))
         };
         let i2c_ssd1306 = shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
         (i2c_ssd1306,)
