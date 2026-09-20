@@ -29,11 +29,12 @@ async fn main(_spawner: emb::executor::Spawner) {
 async fn task_blinky(mut pin_led: impl hal::digital::OutputPin)
 {
     info!("Starting task_blinky");
+    let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
     loop {
         pin_led.set_high().ok();
-        emb::time::Timer::after_millis(500).await;
+        ticker.next().await;
         pin_led.set_low().ok();
-        emb::time::Timer::after_millis(500).await;
+        ticker.next().await;
     }
 }
 {%- when "GPIO In/Out" -%}
