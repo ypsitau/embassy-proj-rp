@@ -168,6 +168,7 @@ async fn task_echo(mut writer: impl io_async::Write, mut reader: impl io_async::
 
 mod emb {
     pub use embassy_executor as executor;
+    pub use embassy_futures as futures;
     pub use embassy_usb as usb;
 }
 use core::sync::atomic;
@@ -301,6 +302,7 @@ impl emb::usb::Handler for USBHandler {
 
 mod emb {
     pub use embassy_executor as executor;
+    pub use embassy_futures as futures;
     pub use embassy_time as time;
     pub use embassy_usb as usb;
 }
