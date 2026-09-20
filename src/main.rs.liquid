@@ -795,11 +795,12 @@ async fn main(spawner: emb::executor::Spawner) {
         run_http_client(net_stack).await;
     };
     let fut_blinky = async {
+        let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(300));
         loop {
             cyw43_control.gpio_set(0, true).await;
-            emb::time::Timer::after_millis(300).await;
+            ticker.next().await;
             cyw43_control.gpio_set(0, false).await;
-            emb::time::Timer::after_millis(300).await;
+            ticker.next().await;
         }
     };
     emb::futures::join::join3(fut_main, fut_net_runner, fut_blinky).await;
