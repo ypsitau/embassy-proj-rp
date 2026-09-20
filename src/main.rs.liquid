@@ -4,16 +4,18 @@
 #![no_std]
 #![no_main]
 
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_time as time;
+}
 use defmt::info;
-use embassy_executor::Spawner;
-use embassy_time as time;
 use embedded_hal_1 as hal;
 use {defmt_rtt as _, panic_probe as _};
 
 use embassy_rp as rp;
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
     let (pin_led,) = {
         let p = rp::init(Default::default());
         let pin_led = p.PIN_25;
@@ -29,9 +31,9 @@ async fn task_blinky(mut pin_led: impl hal::digital::OutputPin)
     info!("Starting task_blinky");
     loop {
         pin_led.set_high().ok();
-        time::Timer::after_millis(500).await;
+        emb::time::Timer::after_millis(500).await;
         pin_led.set_low().ok();
-        time::Timer::after_millis(500).await;
+        emb::time::Timer::after_millis(500).await;
     }
 }
 {%- when "GPIO In/Out" -%}
@@ -39,22 +41,24 @@ async fn task_blinky(mut pin_led: impl hal::digital::OutputPin)
 //!
 //! ## Pin Assignment
 //! | Raspberry Pi Pico | Function |
-//! |------------------|----------|
-//! | GPIO15           | Switch to GND  |
+//! |-------------------|----------|
+//! | GPIO15            | Switch to GND  |
 #![no_std]
 #![no_main]
 
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_time as time;
+}
 use defmt::info;
-use embassy_executor::Spawner;
-use embassy_time as time;
 use embedded_hal_1 as hal;
 use embedded_hal_async as hal_async;
 use {defmt_rtt as _, panic_probe as _};
 
 use embassy_rp as rp;
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
     let (pin_sw, pin_led) = {
         let p = rp::init(Default::default());
         let (pin_sw, pin_led) = (p.PIN_15, p.PIN_25);
@@ -82,7 +86,7 @@ where
             pin_led.set_low().ok();
         }
         pin_sw.wait_for_any_edge().await.ok();
-        time::Timer::after_millis(30).await;    // debounce delay
+        emb::time::Timer::after_millis(30).await;    // debounce delay
     }
 }
 {%- when "UART Echo" -%}
@@ -96,8 +100,10 @@ where
 #![no_std]
 #![no_main]
 
+mod emb {
+    pub use embassy_executor as executor;
+}
 use defmt::info;
-use embassy_executor::Spawner;
 use embedded_io_async as io_async;
 use {defmt_rtt as _, panic_probe as _};
 use static_cell::StaticCell;
@@ -108,8 +114,8 @@ rp::bind_interrupts!(struct Irqs {
     UART0_IRQ => rp::uart::BufferedInterruptHandler<rp::peripherals::UART0>;
 });
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
     let p = rp::init(Default::default());
     let (uart_tx, uart_rx) = {
         let pin_tx = p.PIN_0;
@@ -159,10 +165,12 @@ async fn task_echo(mut writer: impl io_async::Write, mut reader: impl io_async::
 #![no_std]
 #![no_main]
 
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_usb as usb;
+}
 use core::sync::atomic;
 use defmt::info;
-use embassy_executor::Spawner;
-use embassy_usb as usb;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -172,8 +180,8 @@ rp::bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
 });
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
     let (usb_driver,) = {
         let p = rp::init(Default::default());
         let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
@@ -183,7 +191,7 @@ async fn main(_spawner: Spawner) {
     fut_task_usb.await;
 }
 
-async fn task_usb(usb_driver: impl usb::driver::Driver<'static>) {
+async fn task_usb(usb_driver: impl emb::usb::driver::Driver<'static>) {
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
         const PID: u16 = 0xcafe;
@@ -191,7 +199,7 @@ async fn task_usb(usb_driver: impl usb::driver::Driver<'static>) {
         const BOS_DESCRIPTOR_SIZE: usize = 256;
         const MSOS_DESCRIPTOR_SIZE: usize = 256;
         const CONTROL_BUF_SIZE: usize = 64;
-        let mut usb_config = usb::Config::new(VID, PID);
+        let mut usb_config = emb::usb::Config::new(VID, PID);
         usb_config.manufacturer = Some("Embassy");
         usb_config.product = Some("hoge");
         usb_config.serial_number = Some("12345678");
@@ -217,18 +225,18 @@ async fn task_usb(usb_driver: impl usb::driver::Driver<'static>) {
             static STATIC_CELL: StaticCell<USBHandler> = StaticCell::new();
             STATIC_CELL.init(USBHandler::new())
         };
-        let mut usb_builder = usb::Builder::new(usb_driver, usb_config,
+        let mut usb_builder = emb::usb::Builder::new(usb_driver, usb_config,
             config_descriptor_buf, bos_descriptor_buf, msos_descriptor_buf, control_buf);
         usb_builder.handler(usb_handler);
         usb_builder
     };
     let cdc_driver = {
         let state = {
-            static STATE: StaticCell<usb::class::cdc_acm::State> = StaticCell::new();
-            STATE.init(usb::class::cdc_acm::State::new())
+            static STATE: StaticCell<emb::usb::class::cdc_acm::State> = StaticCell::new();
+            STATE.init(emb::usb::class::cdc_acm::State::new())
         };
         let max_packet_size = 64;
-        usb::class::cdc_acm::CdcAcmClass::new(&mut usb_builder, state, max_packet_size)
+        emb::usb::class::cdc_acm::CdcAcmClass::new(&mut usb_builder, state, max_packet_size)
     };
     let mut usb_device = usb_builder.build();
     let fut_usb = usb_device.run();
@@ -247,10 +255,10 @@ async fn task_usb(usb_driver: impl usb::driver::Driver<'static>) {
                 };
                 if let Err(e) = cdc_sender.write_packet(buf_read).await { break e; }
             };
-            if e != usb::driver::EndpointError::Disabled { break; }
+            if e != emb::usb::driver::EndpointError::Disabled { break; }
         };
     };
-    embassy_futures::join::join(fut_usb, fut_echo).await;
+    emb::futures::join::join(fut_usb, fut_echo).await;
 }
 
 struct USBHandler {
@@ -263,7 +271,7 @@ impl USBHandler {
     }
 }
 
-impl usb::Handler for USBHandler {
+impl emb::usb::Handler for USBHandler {
     /// Called when the USB device has been enabled or disabled.
     fn enabled(&mut self, enabled: bool) {
         info!("usb::Handler.enabled({})", enabled);
@@ -290,11 +298,13 @@ impl usb::Handler for USBHandler {
 #![no_std]
 #![no_main]
 
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_time as time;
+    pub use embassy_usb as usb;
+}
 use core::sync::atomic;
 use defmt::{info, warn};
-use embassy_executor::Spawner;
-use embassy_time as time;
-use embassy_usb as usb;
 use embedded_hal_1 as hal;
 use embedded_hal_async as hal_async;
 use usbd_hid::descriptor::SerializedDescriptor as _;
@@ -307,8 +317,8 @@ rp::bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
 });
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
     let (usb_driver, pin_button_a, pin_button_b, pin_button_left, pin_button_up, pin_button_down, pin_button_right) = {
         let p = rp::init(Default::default());
         let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
@@ -325,7 +335,7 @@ async fn main(_spawner: Spawner) {
 }
 
 async fn task_usb<InputPin>(
-    usb_driver: impl usb::driver::Driver<'static>,
+    usb_driver: impl emb::usb::driver::Driver<'static>,
     mut pin_button_a: InputPin, mut pin_button_b: InputPin,
     mut pin_button_left: InputPin, mut pin_button_up: InputPin,
     mut pin_button_down: InputPin, mut pin_button_right: InputPin,
@@ -341,7 +351,7 @@ where
         const BOS_DESCRIPTOR_SIZE: usize = 256;
         const MSOS_DESCRIPTOR_SIZE: usize = 256;
         const CONTROL_BUF_SIZE: usize = 64;
-        let mut usb_config = usb::Config::new(VID, PID);
+        let mut usb_config = emb::usb::Config::new(VID, PID);
         usb_config.manufacturer = Some("Embassy");
         usb_config.product = Some("hoge");
         usb_config.serial_number = Some("12345678");
@@ -367,52 +377,52 @@ where
             static STATIC_CELL: StaticCell<USBHandler> = StaticCell::new();
             STATIC_CELL.init(USBHandler::new())
         };
-        let mut usb_builder = usb::Builder::new(usb_driver, usb_config,
+        let mut usb_builder = emb::usb::Builder::new(usb_driver, usb_config,
             config_descriptor_buf, bos_descriptor_buf, msos_descriptor_buf, control_buf);
         usb_builder.handler(usb_handler);
         usb_builder
     };
     let (hid_keyboard_reader, mut hid_keyboard_writer) = {
         let state = {
-            static STATIC_CELL: StaticCell<usb::class::hid::State> = StaticCell::new();
-            STATIC_CELL.init(usb::class::hid::State::new())
+            static STATIC_CELL: StaticCell<emb::usb::class::hid::State> = StaticCell::new();
+            STATIC_CELL.init(emb::usb::class::hid::State::new())
         };
-        let config = usb::class::hid::Config {
+        let config = emb::usb::class::hid::Config {
             report_descriptor: usbd_hid::descriptor::KeyboardReport::desc(),
             request_handler: None,
             poll_ms: 60,
             max_packet_size: 64,
-            hid_subclass: usb::class::hid::HidSubclass::Boot,
-            hid_boot_protocol: usb::class::hid::HidBootProtocol::Keyboard,
+            hid_subclass: emb::usb::class::hid::HidSubclass::Boot,
+            hid_boot_protocol: emb::usb::class::hid::HidBootProtocol::Keyboard,
         };
-        usb::class::hid::HidReaderWriter::<_, 1, 8>::new(&mut usb_builder, state, config).split()
+        emb::usb::class::hid::HidReaderWriter::<_, 1, 8>::new(&mut usb_builder, state, config).split()
     };
     let (hid_mouse_reader, mut hid_mouse_writer) = {
         let state = {
-            static STATIC_CELL: StaticCell<usb::class::hid::State> = StaticCell::new();
-            STATIC_CELL.init(usb::class::hid::State::new())
+            static STATIC_CELL: StaticCell<emb::usb::class::hid::State> = StaticCell::new();
+            STATIC_CELL.init(emb::usb::class::hid::State::new())
         };
-        let config = usb::class::hid::Config {
+        let config = emb::usb::class::hid::Config {
             report_descriptor: usbd_hid::descriptor::MouseReport::desc(),
             request_handler: None,
             poll_ms: 60,
             max_packet_size: 64,
-            hid_subclass: usb::class::hid::HidSubclass::Boot,
-            hid_boot_protocol: usb::class::hid::HidBootProtocol::Mouse,
+            hid_subclass: emb::usb::class::hid::HidSubclass::Boot,
+            hid_boot_protocol: emb::usb::class::hid::HidBootProtocol::Mouse,
         };
-        usb::class::hid::HidReaderWriter::<_, 1, 8>::new(&mut usb_builder, state, config).split()
+        emb::usb::class::hid::HidReaderWriter::<_, 1, 8>::new(&mut usb_builder, state, config).split()
     };
     let mut usb_device = usb_builder.build();
     let fut_usb = usb_device.run();
     let fut_hid_keyboard_writer = async {
         loop {
-            let _= embassy_futures::select::select_array([
+            let _= emb::futures::select::select_array([
                 pin_button_left.wait_for_any_edge(),
                 pin_button_up.wait_for_any_edge(),
                 pin_button_down.wait_for_any_edge(),
                 pin_button_right.wait_for_any_edge(),
             ]).await;
-            time::Timer::after_millis(30).await; // skip the bounding period
+            emb::time::Timer::after_millis(30).await; // skip the bounding period
             let mut n_keycodes = 0;
             let mut keycodes = [0u8; 6];
             if pin_button_left.is_low().unwrap() { keycodes[n_keycodes] = 0x50; n_keycodes += 1; }
@@ -452,7 +462,7 @@ where
             if let Err(e) = hid_mouse_writer.write_serialize(&mouse_report).await {
                 warn!("Failed to send report: {:?}", e);
             }
-            time::Timer::after_millis(100).await;
+            emb::time::Timer::after_millis(100).await;
         }
     };
     let fut_hid_keyboard_reader = async {
@@ -463,7 +473,7 @@ where
         let mut hid_request_handler = HidRequestHandler::new();
         hid_mouse_reader.run(false, &mut hid_request_handler).await;
     };
-    embassy_futures::join::join5(fut_usb, fut_hid_keyboard_writer, fut_hid_mouse_writer, fut_hid_keyboard_reader, fut_hid_mouse_reader).await;
+    emb::futures::join::join5(fut_usb, fut_hid_keyboard_writer, fut_hid_mouse_writer, fut_hid_keyboard_reader, fut_hid_mouse_reader).await;
 }
 
 struct USBHandler {
@@ -476,7 +486,7 @@ impl USBHandler {
     }
 }
 
-impl usb::Handler for USBHandler {
+impl emb::usb::Handler for USBHandler {
     /// Called when the USB device has been enabled or disabled.
     fn enabled(&mut self, enabled: bool) {
         info!("usb::Handler.enabled({})", enabled);
@@ -506,49 +516,49 @@ struct HidRequestHandler {
 impl HidRequestHandler {
     fn new() -> Self {
         HidRequestHandler {
-            hid_protocol_mode: atomic::AtomicU8::new(usb::class::hid::HidProtocolMode::Boot as u8),
+            hid_protocol_mode: atomic::AtomicU8::new(emb::usb::class::hid::HidProtocolMode::Boot as u8),
         }
     }
 }
 
-impl usb::class::hid::RequestHandler for HidRequestHandler {
+impl emb::usb::class::hid::RequestHandler for HidRequestHandler {
     // Reads the value of report `id` into `buf` returning the size.
     // Returns `None` if `id` is invalid or no data is available.
-    fn get_report(&mut self, id: usb::class::hid::ReportId, _buf: &mut [u8]) -> Option<usize> {
+    fn get_report(&mut self, id: emb::usb::class::hid::ReportId, _buf: &mut [u8]) -> Option<usize> {
         info!("hid::RequestHander.get_report(id: {:?})", id);
         None
     }
     // Sets the value of report `id` to `data`.
-    fn set_report(&mut self, id: usb::class::hid::ReportId, data: &[u8]) -> usb::control::OutResponse {
+    fn set_report(&mut self, id: emb::usb::class::hid::ReportId, data: &[u8]) -> emb::usb::control::OutResponse {
         info!("hid::RequestHandler.set_report(id: {:?}, data: {:02x}", id, data);
-        usb::control::OutResponse::Accepted
+        emb::usb::control::OutResponse::Accepted
     }
     // Gets the current hid protocol.
     // Returns `Report` protocol by default.
-    fn get_protocol(&self) -> usb::class::hid::HidProtocolMode {
-        let mode = usb::class::hid::HidProtocolMode::from(self.hid_protocol_mode.load(atomic::Ordering::Relaxed));
+    fn get_protocol(&self) -> emb::usb::class::hid::HidProtocolMode {
+        let mode = emb::usb::class::hid::HidProtocolMode::from(self.hid_protocol_mode.load(atomic::Ordering::Relaxed));
         info!("hid::RequestHandler.get_protocol() -> {}", mode);
         mode
     }
     // Sets the current hid protocol to `protocol`.
     // Accepts only `Report` protocol by default.
-    fn set_protocol(&mut self, protocol: usb::class::hid::HidProtocolMode) -> usb::control::OutResponse {
+    fn set_protocol(&mut self, protocol: emb::usb::class::hid::HidProtocolMode) -> emb::usb::control::OutResponse {
         info!("hid::RequestHandler.set_protocol(protocol: {})", protocol);
         self.hid_protocol_mode.store(protocol as u8, atomic::Ordering::Relaxed);
-        usb::control::OutResponse::Accepted
+        emb::usb::control::OutResponse::Accepted
     }
     // Get the idle rate for `id`.
     // If `id` is `None`, get the idle rate for all reports. Returning `None`
     // will reject the control request. Any duration at or above 1.024 seconds
     // or below 4ms will be returned as an indefinite idle rate.
-    fn get_idle_ms(&mut self, id: Option<usb::class::hid::ReportId>) -> Option<u32> {
+    fn get_idle_ms(&mut self, id: Option<emb::usb::class::hid::ReportId>) -> Option<u32> {
         info!("hid::RequestHandler.get_idle_ms(id: {:?})", id);
         None
     }
     // Set the idle rate for `id` to `dur`.
     // If `id` is `None`, set the idle rate of all input reports to `dur`. If
     // an indefinite duration is requested, `dur` will be set to `u32::MAX`.
-    fn set_idle_ms(&mut self, id: Option<usb::class::hid::ReportId>, dur: u32) {
+    fn set_idle_ms(&mut self, id: Option<emb::usb::class::hid::ReportId>, dur: u32) {
         info!("hid::RequestHandler.set_idle_ms(id: {:?}, dur: {:?})", id, dur);
     }
 }
@@ -564,12 +574,14 @@ impl usb::class::hid::RequestHandler for HidRequestHandler {
 #![no_std]
 #![no_main]
 
+mod emb {
+    use embassy_executor as executor;
+    use embassy_embedded_hal::shared_bus;
+    use embassy_sync as sync;
+    use embassy_time as time;
+}
 use defmt::info;
 use core::fmt::Write as _;
-use embassy_executor::Spawner;
-use embassy_embedded_hal::shared_bus;
-use embassy_sync as sync;
-use embassy_time as time;
 use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -580,8 +592,8 @@ rp::bind_interrupts!(struct Irqs {
     I2C0_IRQ => rp::i2c::InterruptHandler<rp::peripherals::I2C0>;
 });
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
     let (i2c_ssd1306,) = {
         let p = rp::init(Default::default());
         let mutex_i2c0 = {
@@ -590,10 +602,10 @@ async fn main(_spawner: Spawner) {
             let mut config = rp::i2c::Config::default();
             config.frequency = 400_000;
             let i2c0 = rp::i2c::I2c::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config);
-            static STATIC_CELL: StaticCell<sync::mutex::Mutex<
-                sync::blocking_mutex::raw::NoopRawMutex,
+            static STATIC_CELL: StaticCell<emb::sync::mutex::Mutex<
+                emb::sync::blocking_mutex::raw::NoopRawMutex,
                 rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>>> = StaticCell::new();
-            STATIC_CELL.init(sync::mutex::Mutex::new(i2c0))
+            STATIC_CELL.init(emb::sync::mutex::Mutex::new(i2c0))
         };
         let i2c_ssd1306 = shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
         (i2c_ssd1306,)
@@ -602,7 +614,7 @@ async fn main(_spawner: Spawner) {
     fut_task_display.await;
 }
 
-async fn task_display(i2c_ssd1306: impl embedded_hal_async::i2c::I2c) {
+async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
     info!("Starting display task");
     use ssd1306::prelude::*;
     use embedded_graphics as eg;
@@ -636,7 +648,7 @@ async fn task_display(i2c_ssd1306: impl embedded_hal_async::i2c::I2c) {
     let mut i_frame = 0;
     let (mut x, mut y) = (size_display.width as i32 / 2, size_display.height as i32 / 2);
     let (mut x_dir, mut y_dir) = (Direction::Inc, Direction::Inc);
-    let mut ticker = time::Ticker::every(time::Duration::from_millis(10));
+    let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(10));
     loop {
         display.clear(eg::pixelcolor::BinaryColor::Off).unwrap();
         sbuf.clear();
@@ -668,16 +680,19 @@ async fn task_display(i2c_ssd1306: impl embedded_hal_async::i2c::I2c) {
 #![no_std]
 #![no_main]
 
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_futures as futures;
+    pub use embassy_net as net;
+    pub use embassy_time as time;
+}
 use defmt::*;
-use embassy_executor::Spawner;
-use embassy_futures as futures;
-use embassy_net as net;
-use embassy_rp as rp;
-use embassy_time as time;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 mod private_info;
+
+use embassy_rp as rp;
 
 rp::bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => rp::pio::InterruptHandler<rp::peripherals::PIO0>;
@@ -689,8 +704,8 @@ async fn cyw43_task(cyw43_runner: cyw43::Runner<'static, cyw43::SpiBus<rp::gpio:
     cyw43_runner.run().await;
 }
 
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
+#[emb::executor::main]
+async fn main(spawner: emb::executor::Spawner) {
     let p = embassy_rp::init(Default::default());
     let (net_driver, mut cyw43_control) =  {
         let (pin_pwr, pin_dio, pin_cs, pin_clk) = (p.PIN_23, p.PIN_24, p.PIN_25, p.PIN_29);
@@ -742,21 +757,21 @@ async fn main(spawner: Spawner) {
     let (net_stack, mut net_runner) = {
         const USE_DHCP: bool = true;
         let config = if USE_DHCP {
-            net::Config::dhcpv4(Default::default())
+            emb::net::Config::dhcpv4(Default::default())
         } else {
-            let address = net::Ipv4Cidr::new(net::Ipv4Address::new(192, 168, 0, 100), 24);
-            let mut dns_servers = heapless::Vec::<net::Ipv4Address, 3>::new();
-            dns_servers.push(net::Ipv4Address::new(192, 168, 0, 1)).unwrap();
-            let gateway = Some(net::Ipv4Address::new(192, 168, 0, 1));
-            net::Config::ipv4_static(net::StaticConfigV4 {address, dns_servers, gateway})
+            let address = emb::net::Ipv4Cidr::new(emb::net::Ipv4Address::new(192, 168, 0, 100), 24);
+            let mut dns_servers = heapless::Vec::<emb::net::Ipv4Address, 3>::new();
+            dns_servers.push(emb::net::Ipv4Address::new(192, 168, 0, 1)).unwrap();
+            let gateway = Some(emb::net::Ipv4Address::new(192, 168, 0, 1));
+            emb::net::Config::ipv4_static(emb::net::StaticConfigV4 {address, dns_servers, gateway})
         };
         let resources = {
-            static STATIC_CELL: StaticCell<net::StackResources<3>> = StaticCell::new();
-            STATIC_CELL.init(net::StackResources::new())
+            static STATIC_CELL: StaticCell<emb::net::StackResources<3>> = StaticCell::new();
+            STATIC_CELL.init(emb::net::StackResources::new())
         };
         let mut rng = rp::clocks::RoscRng;
         let seed = rng.next_u64();
-        let (net_stack, net_runner) = net::new(net_driver, config, resources, seed);
+        let (net_stack, net_runner) = emb::net::new(net_driver, config, resources, seed);
         (net_stack, net_runner)
     };
     let fut_net_runner = net_runner.run();
@@ -771,22 +786,22 @@ async fn main(spawner: Spawner) {
     let fut_blinky = async {
         loop {
             cyw43_control.gpio_set(0, true).await;
-            time::Timer::after_millis(300).await;
+            emb::time::Timer::after_millis(300).await;
             cyw43_control.gpio_set(0, false).await;
-            time::Timer::after_millis(300).await;
+            emb::time::Timer::after_millis(300).await;
         }
     };
-    futures::join::join3(fut_main, fut_net_runner, fut_blinky).await;
+    emb::futures::join::join3(fut_main, fut_net_runner, fut_blinky).await;
 }
 
-async fn run_http_client(net_stack: net::Stack<'_>) -> ! {
+async fn run_http_client(net_stack: emb::net::Stack<'_>) -> ! {
     const USE_TLS: bool = false;
     let client_state = {
         const N: usize = 1;
         const TX_SZ: usize = 4096;
         const RX_SZ: usize = 4096;
-        static STATIC_CELL: StaticCell<net::tcp::client::TcpClientState<N, TX_SZ, RX_SZ>> = StaticCell::new();
-        STATIC_CELL.init(net::tcp::client::TcpClientState::<N, TX_SZ, RX_SZ>::new())
+        static STATIC_CELL: StaticCell<emb::net::tcp::client::TcpClientState<N, TX_SZ, RX_SZ>> = StaticCell::new();
+        STATIC_CELL.init(emb::net::tcp::client::TcpClientState::<N, TX_SZ, RX_SZ>::new())
     };
     let buf_response = {
         const SIZE: usize = 4096;
@@ -794,8 +809,8 @@ async fn run_http_client(net_stack: net::Stack<'_>) -> ! {
         STATIC_CELL.init([0; SIZE])
     };
     loop {
-        let tcp_client = net::tcp::client::TcpClient::new(net_stack, client_state);
-        let dns_socket = net::dns::DnsSocket::new(net_stack);
+        let tcp_client = emb::net::tcp::client::TcpClient::new(net_stack, client_state);
+        let dns_socket = emb::net::dns::DnsSocket::new(net_stack);
         let (mut http_client, url) = if USE_TLS {
             let tls_read_buffer = {
                 static STATIC_CELL: StaticCell<[u8; 16640]> = StaticCell::new();
@@ -823,7 +838,7 @@ async fn run_http_client(net_stack: net::Stack<'_>) -> ! {
             Ok(request) => request,
             Err(e) => {
                 error!("Failed to make HTTP request: {:?}", e);
-                time::Timer::after_secs(5).await;
+                emb::time::Timer::after_secs(5).await;
                 continue;
             }
         };
@@ -831,7 +846,7 @@ async fn run_http_client(net_stack: net::Stack<'_>) -> ! {
             Ok(response) => response,
             Err(e) => {
                 error!("Failed to send HTTP request: {:?}", e);
-                time::Timer::after_secs(5).await;
+                emb::time::Timer::after_secs(5).await;
                 continue;
             }
         };
@@ -840,7 +855,7 @@ async fn run_http_client(net_stack: net::Stack<'_>) -> ! {
             Ok(body_bytes) => body_bytes,
             Err(_e) => {
                 error!("Failed to read response body");
-                time::Timer::after_secs(5).await;
+                emb::time::Timer::after_secs(5).await;
                 continue;
             }
         };
@@ -865,7 +880,7 @@ async fn run_http_client(net_stack: net::Stack<'_>) -> ! {
                 error!("Failed to parse JSON response: {}", Debug2Format(&e));
             }
         }
-        time::Timer::after_secs(5).await;
+        emb::time::Timer::after_secs(5).await;
     }
 }
 {%- endcase %}
