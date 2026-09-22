@@ -598,6 +598,8 @@ use {defmt_rtt as _, panic_probe as _};
 
 use embassy_rp as rp;
 
+type AsyncMutexNoop<T> = emb::sync::mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
+
 rp::bind_interrupts!(struct Irqs {
     I2C0_IRQ => rp::i2c::InterruptHandler<rp::peripherals::I2C0>;
 });
@@ -612,10 +614,9 @@ async fn main(_spawner: emb::executor::Spawner) {
             let mut config = rp::i2c::Config::default();
             config.frequency = 400_000;
             let i2c0 = rp::i2c::I2c::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config);
-            static STATIC_CELL: StaticCell<emb::sync::mutex::Mutex<
-                emb::sync::blocking_mutex::raw::NoopRawMutex,
+            static STATIC_CELL: StaticCell<AsyncMutexNoop<
                 rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>>> = StaticCell::new();
-            STATIC_CELL.init(emb::sync::mutex::Mutex::new(i2c0))
+            STATIC_CELL.init(AsyncMutexNoop::new(i2c0))
         };
         let i2c_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
         (i2c_ssd1306,)
@@ -684,6 +685,122 @@ async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
         y_dir.step(&mut y);
         display.flush().await.unwrap();
         ticker.next().await;
+    }
+}
+{%- when "I2C SSD1306 + DS3231" -%}
+//! I2C SSD1306 example using Embassy and async/await.
+//!
+//! ## Pin Assignment
+//!
+//! | Raspberry Pi Pico | SSD1306 |
+//! |-------------------|---------|
+//! | GPIO16            | SDA     |
+//! | GPIO17            | SCL     |
+#![no_std]
+#![no_main]
+
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_embedded_hal::shared_bus;
+    pub use embassy_sync as sync;
+    pub use embassy_time as time;
+}
+use embedded_hal_async as hal_async;
+
+use core::fmt::Write as _;
+use defmt::info;
+use heapless::String;
+use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
+
+use embassy_rp as rp;
+
+type AsyncMutexNoop<T> = emb::sync::mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
+
+rp::bind_interrupts!(struct Irqs {
+    I2C0_IRQ => rp::i2c::InterruptHandler<rp::peripherals::I2C0>;
+});
+
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
+    let (i2c_ssd1306, i2c_ds3231) = {
+        let p = rp::init(Default::default());
+        let mutex_i2c0 = {
+            let pin_sda = p.PIN_16;
+            let pin_scl = p.PIN_17;
+            let mut config = rp::i2c::Config::default();
+            config.frequency = 400_000;
+            let i2c0 = rp::i2c::I2c::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config);
+            static STATIC_CELL: StaticCell<AsyncMutexNoop<
+                rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>>> = StaticCell::new();
+            STATIC_CELL.init(AsyncMutexNoop::new(i2c0))
+        };
+        let i2c_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
+        let i2c_ds3231 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
+        (i2c_ssd1306, i2c_ds3231)
+    };
+    let fut_task_clock = task_clock(i2c_ssd1306, i2c_ds3231);
+    fut_task_clock.await;
+}
+
+async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_async::i2c::I2c) {
+    info!("Starting clock task");
+    use ssd1306::prelude::*;
+    use embedded_graphics as eg;
+    use embedded_graphics::prelude::*;
+    let mut display = {
+        let interface = ssd1306::I2CDisplayInterface::new(i2c_ssd1306);
+        let size = ssd1306::size::DisplaySize128x64;
+        let rotation = ssd1306::rotation::DisplayRotation::Rotate0;
+        ssd1306::Ssd1306Async::new(interface, size, rotation).into_buffered_graphics_mode()
+    };
+    let mut buf = [0u8; 1];
+    display.init().await.unwrap();
+    let mut ds3231 = Ds3231::new(i2c_ds3231);
+    let text_style = eg::mono_font::MonoTextStyleBuilder::new()
+        .font(&eg::mono_font::ascii::FONT_10X20)
+        .text_color(eg::pixelcolor::BinaryColor::On)
+        .build();
+    let mut sbuf: String<32> = String::new();
+    let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
+    loop {
+        display.clear(eg::pixelcolor::BinaryColor::Off).unwrap();
+        sbuf.clear();
+        if let Ok(now) = ds3231.read().await {
+            write!(sbuf, "{:02}:{:02}:{:02}",
+                now.time().hour(), now.time().minute(), now.time().second()).unwrap();
+        } else {
+            write!(sbuf, "--:--:--").unwrap();
+        }
+        eg::text::Text::with_baseline(sbuf.as_str(), Point::new(0, 0),
+            text_style, eg::text::Baseline::Top).draw(&mut display).unwrap();
+        display.flush().await.unwrap();
+        ticker.next().await;
+    }
+}
+
+struct Ds3231<I2C> {
+    i2c: I2C,
+}
+
+impl<I2C: hal_async::i2c::I2c> Ds3231<I2C> {
+    pub fn new(i2c: I2C) -> Self {
+        Self { i2c }
+    }
+    pub async fn read(&mut self) -> Result<time::PrimitiveDateTime, I2C::Error> {
+        fn bcd_to_dec(value: u8) -> u8 { (value >> 4) * 10 + (value & 0x0f) }
+        let mut regs = [0u8; 7];
+        self.i2c.write_read(0x68, &[0x00], &mut regs).await?;
+        let year = 2000 + bcd_to_dec(regs[6]) as i32;
+        let month = time::Month::try_from(bcd_to_dec(regs[5])).unwrap();
+        let day = bcd_to_dec(regs[4]); 
+        let hour = bcd_to_dec(regs[2]);
+        let minute = bcd_to_dec(regs[1]);
+        let second = bcd_to_dec(regs[0] & 0x7f);
+        let dt = time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(year, month, day).unwrap(),
+            time::Time::from_hms(hour, minute, second).unwrap());
+        Ok(dt)
     }
 }
 {%- when "Wi-Fi HTTP Client" -%}

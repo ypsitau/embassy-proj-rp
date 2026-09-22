@@ -60,10 +60,15 @@ serde-json-core = { version = "0.5.1" }
 {%- endcase %}
 
 cortex-m-rt = { version = "0.7" }
-{% case template -%}
+{%- case template %}
+
 {%- when "I2C SSD1306" -%}
 ssd1306 = { version = "0.10.0", features = ["async"] }
 embedded-graphics = { version = "0.8.2" }
+{%- when "I2C SSD1306 + DS3231" -%}
+ssd1306 = { version = "0.10.0", features = ["async"] }
+embedded-graphics = { version = "0.8.2" }
+time = { version = "0.3.55", default-features = false } # no_std
 {%- when "Wi-Fi HTTP Client" -%}
 cyw43 = { version = "0.7.0", features = ["defmt"] }
 cyw43-pio = { version = "0.10.0" }
