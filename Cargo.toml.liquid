@@ -29,7 +29,8 @@ embedded-hal-1 = { version = "1.0", package = "embedded-hal" }
 embedded-hal-async = { version = "1.0.0", features = ["defmt-03"] }
 embedded-io-async = { version = "0.7" }
 
-{% case template -%}
+{%- case template %}
+
 {%- when "USB Device CDC" -%}
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-usb-driver = { version = "0.2.2", features = ["defmt"] }
@@ -60,6 +61,7 @@ serde-json-core = { version = "0.5.1" }
 {%- endcase %}
 
 cortex-m-rt = { version = "0.7" }
+
 {%- case template %}
 
 {%- when "I2C SSD1306" -%}

@@ -11,6 +11,7 @@ choices = [
     "USB Device CDC",
     "USB Device HID Keyboard and Mouse",
     "I2C SSD1306",
+    "I2C SSD1306 + DS3231",
     "Wi-Fi HTTP Client"
 ]
 default = "Blinky"
