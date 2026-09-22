@@ -30,14 +30,15 @@ embedded-hal-async = { version = "1.0.0", features = ["defmt-03"] }
 embedded-io-async = { version = "0.7" }
 
 {%- case template %}
-
 {%- when "USB Device CDC" -%}
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-usb-driver = { version = "0.2.2", features = ["defmt"] }
+
 {%- when "USB Device HID Keyboard and Mouse" -%}
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-usb-driver = { version = "0.2.2", features = ["defmt"] }
 usbd-hid = { version = "0.10.2" }
+
 {%- when "Wi-Fi HTTP Client" -%}
 embassy-net = { version = "0.9.1", features = [
     "defmt",
@@ -58,23 +59,26 @@ reqwless = { git = "https://github.com/drogue-iot/reqwless",
 }
 serde = { version = "1.0.229", default-features = false, features = ["derive"] }
 serde-json-core = { version = "0.5.1" }
-{%- endcase %}
+
+{%- endcase -%}
 
 cortex-m-rt = { version = "0.7" }
 
-{%- case template %}
-
+{% case template -%}
 {%- when "I2C SSD1306" -%}
 ssd1306 = { version = "0.10.0", features = ["async"] }
 embedded-graphics = { version = "0.8.2" }
+
 {%- when "I2C SSD1306 + DS3231" -%}
 ssd1306 = { version = "0.10.0", features = ["async"] }
 embedded-graphics = { version = "0.8.2" }
 time = { version = "0.3.55", default-features = false } # no_std
+
 {%- when "Wi-Fi HTTP Client" -%}
 cyw43 = { version = "0.7.0", features = ["defmt"] }
 cyw43-pio = { version = "0.10.0" }
-{%- endcase %}
+
+{%- endcase -%}
 
 [target.'cfg( target_arch = "arm" )'.dependencies]
 panic-probe = { version = "1", features = ["print-defmt"] }
