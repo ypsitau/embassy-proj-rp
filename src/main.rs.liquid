@@ -173,6 +173,7 @@ mod emb {
     pub use embassy_futures as futures;
     pub use embassy_usb as usb;
 }
+use embedded_io_async as io_async;
 
 use core::sync::atomic;
 use defmt::info;
@@ -235,35 +236,50 @@ async fn task_usb(usb_driver: impl emb::usb::driver::Driver<'static>) {
         usb_builder.handler(usb_handler);
         usb_builder
     };
-    let cdc_driver = {
+    let (cdc_sender, cdc_receiver) = {
+        const MAX_PACKET_SIZE: usize = 64;
         let state = {
             static STATE: StaticCell<emb::usb::class::cdc_acm::State> = StaticCell::new();
             STATE.init(emb::usb::class::cdc_acm::State::new())
         };
-        let max_packet_size = 64;
-        emb::usb::class::cdc_acm::CdcAcmClass::new(&mut usb_builder, state, max_packet_size)
+        let cdc_driver = emb::usb::class::cdc_acm::CdcAcmClass::new(&mut usb_builder, state, MAX_PACKET_SIZE as u16);
+        let (cdc_sender, cdc_receiver) = cdc_driver.split();
+        let cdc_receiver = {
+            let buf = {
+                static STATIC_CELL: StaticCell<[u8; MAX_PACKET_SIZE]> = StaticCell::new();
+                STATIC_CELL.init([0u8; MAX_PACKET_SIZE])
+            };
+            cdc_receiver.into_buffered(buf)
+        };
+        (cdc_sender, cdc_receiver)
     };
     let mut usb_device = usb_builder.build();
     let fut_usb = usb_device.run();
-    let fut_echo = async {
-        let (mut cdc_sender, mut cdc_receiver) = cdc_driver.split();
-        let buf = {
-            static STATIC_CELL: StaticCell<[u8; 64]> = StaticCell::new();
-            STATIC_CELL.init([0u8; 64])
-        };
-        loop {
-            cdc_receiver.wait_connection().await;
-            info!("Connected");
-            let e = loop {
-                let buf_read = match cdc_receiver.read_packet(buf).await {
-                    Ok(n) => &buf[..n], Err(e) => break e,
-                };
-                if let Err(e) = cdc_sender.write_packet(buf_read).await { break e; }
-            };
-            if e != emb::usb::driver::EndpointError::Disabled { break; }
-        };
-    };
+    let fut_echo = task_echo(cdc_sender, cdc_receiver);
     emb::futures::join::join(fut_usb, fut_echo).await;
+}
+
+async fn task_echo(mut writer: impl io_async::Write, mut reader: impl io_async::Read) -> ! {
+    info!("Starting echo task");
+    const BUFSIZE: usize = 16;
+    let buf = {
+        static STATIC_CELL: StaticCell<[u8; BUFSIZE]> = StaticCell::new();
+        STATIC_CELL.init([0u8; BUFSIZE])
+    };
+    writer.write_all(b"Enter any keystrokes:\r\n").await.ok();
+    writer.flush().await.ok();
+    loop {
+        match reader.read(buf).await {
+            Ok(len) => {
+                writer.write_all(&buf[..len]).await.ok();
+                writer.flush().await.ok();
+            }
+            Err(_) => {
+                writer.write_all(b"error in reading\r\n").await.ok();
+                writer.flush().await.ok();
+            }
+        }
+    }
 }
 
 struct USBHandler {
