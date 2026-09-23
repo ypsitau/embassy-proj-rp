@@ -357,8 +357,7 @@ async fn main(_spawner: emb::executor::Spawner) {
     fut_task_usb.await;
 }
 
-async fn task_usb<InputPin>(
-    usb_driver: impl emb::usb::driver::Driver<'static>,
+async fn task_usb<InputPin>(usb_driver: impl emb::usb::driver::Driver<'static>,
     mut pin_button_a: InputPin, mut pin_button_b: InputPin,
     mut pin_button_left: InputPin, mut pin_button_up: InputPin,
     mut pin_button_down: InputPin, mut pin_button_right: InputPin,
@@ -439,6 +438,7 @@ where
     let fut_usb = usb_device.run();
     let fut_hid_keyboard_writer = async {
         loop {
+            hid_keyboard_writer.ready().await;
             let _= emb::futures::select::select_array([
                 pin_button_left.wait_for_any_edge(),
                 pin_button_up.wait_for_any_edge(),
@@ -465,7 +465,9 @@ where
         }
     };
     let fut_hid_mouse_writer = async {
+        let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(100)); // 100 ms interval
         loop {
+            hid_mouse_writer.ready().await;
             let mouse_report = usbd_hid::descriptor::MouseReport {
                 buttons: 0,
                 x: 0,
@@ -485,7 +487,7 @@ where
             if let Err(e) = hid_mouse_writer.write_serialize(&mouse_report).await {
                 warn!("Failed to send report: {:?}", e);
             }
-            emb::time::Timer::after_millis(100).await;
+            ticker.next().await;
         }
     };
     let fut_hid_keyboard_reader = async {
