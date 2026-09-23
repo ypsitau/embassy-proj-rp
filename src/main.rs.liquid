@@ -141,7 +141,7 @@ async fn main(_spawner: emb::executor::Spawner) {
     task_echo(uart,).await;
 }
 
-async fn task_echo(mut reader_writer: impl io_async::Read + impl io_async::Write) -> ! {
+async fn task_echo(mut reader_writer: impl io_async::Read + io_async::Write) -> ! {
     info!("Starting echo task");
     const BUFSIZE: usize = 16;
     let buf = {
