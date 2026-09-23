@@ -207,7 +207,7 @@ async fn task_usb(usb_driver: impl emb::usb::driver::Driver<'static>) {
         const CONTROL_BUF_SIZE: usize = 64;
         let mut usb_config = emb::usb::Config::new(VID, PID);
         usb_config.manufacturer = Some("Embassy");
-        usb_config.product = Some("{{project_name}}");
+        usb_config.product = Some("{{project-name}}");
         usb_config.serial_number = Some("12345678");
         usb_config.max_power = 100;
         usb_config.max_packet_size_0 = CONTROL_BUF_SIZE as u8;
@@ -376,7 +376,7 @@ where
         const CONTROL_BUF_SIZE: usize = 64;
         let mut usb_config = emb::usb::Config::new(VID, PID);
         usb_config.manufacturer = Some("Embassy");
-        usb_config.product = Some("{{project_name}}");
+        usb_config.product = Some("{{project-name}}");
         usb_config.serial_number = Some("12345678");
         usb_config.max_power = 100;
         usb_config.max_packet_size_0 = CONTROL_BUF_SIZE as u8;
