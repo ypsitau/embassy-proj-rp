@@ -92,6 +92,57 @@ where
         emb::time::Timer::after_millis(30).await;    // debounce delay
     }
 }
+{%- when "PWM LED" -%}
+//! PWM example using Embassy.
+#![no_std]
+#![no_main]
+
+mod pwm_util;
+
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_time as time;
+}
+use embedded_hal_1 as hal;
+
+use defmt::info;
+use fixed::traits::ToFixed as _;        // for to_fixed()
+use {defmt_rtt as _, panic_probe as _};
+
+use embassy_rp as rp;
+
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
+    let (pwm_led,) = {
+        let p = rp::init(Default::default());
+        let pwm_led = {
+            let (divider, top) = pwm_util::calc_divider_and_top(rp::clocks::clk_sys_freq(), 1000);
+            let mut config = rp::pwm::Config::default();
+            config.divider = divider.to_fixed();
+            config.top = top;
+            rp::pwm::Pwm::new_output_b(p.PWM_SLICE4, p.PIN_25, config)
+        };
+        (pwm_led,)
+    };
+    let fut_task_dim_led = task_dim_led(pwm_led);
+    fut_task_dim_led.await;
+}
+
+async fn task_dim_led(mut pwm_led: impl hal::pwm::SetDutyCycle)
+{
+    info!("Starting task_dim_led");
+    let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
+    loop {
+        pwm_led.set_duty_cycle_fraction(100, 100).ok();
+        ticker.next().await;
+        pwm_led.set_duty_cycle_fraction(66, 100).ok();
+        ticker.next().await;
+        pwm_led.set_duty_cycle_fraction(33, 100).ok();
+        ticker.next().await;
+        pwm_led.set_duty_cycle_fraction(0, 100).ok();
+        ticker.next().await;
+    }
+}
 {%- when "UART Echo" -%}
 //! UART Echo example using Embassy and async/await.
 //!

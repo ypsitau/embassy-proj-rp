@@ -7,6 +7,7 @@ prompt = "Choose a template"
 choices = [
     "Blinky",
     "GPIO In/Out",
+    "PWM LED",
     "UART Echo",
     "USB Device CDC",
     "USB Device HID Keyboard and Mouse",
@@ -19,3 +20,6 @@ type = "string"
 
 [conditional.'template != "Wi-Fi HTTP Client"']
 ignore = ["cyw43-firmware", "src/private_info.rs"]
+
+[conditional.'template != "PWM LED"']
+ignore = ["pwm_util.rs"]
