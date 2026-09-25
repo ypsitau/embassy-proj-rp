@@ -884,7 +884,7 @@ mod emb {
 
 use defmt::*;
 use static_cell::StaticCell;
-use rand_core::TryRng;
+use rand_core::TryRngCore;
 use {defmt_rtt as _, panic_probe as _};
 
 mod private_info;
@@ -904,7 +904,7 @@ async fn cyw43_task(cyw43_runner: cyw43::Runner<'static, cyw43::SpiBus<rp::gpio:
 #[emb::executor::main]
 async fn main(spawner: emb::executor::Spawner) {
     let p = embassy_rp::init(Default::default());
-    let (net_driver, mut cyw43_control, rng) =  {
+    let (net_driver, mut cyw43_control, mut rng) =  {
         let (pin_pwr, pin_dio, pin_cs, pin_clk) = (p.PIN_23, p.PIN_24, p.PIN_25, p.PIN_29);
         const PRE_DOWNLOAD_FIRMWARE: bool = true;
         let state = {
@@ -978,7 +978,7 @@ async fn main(spawner: emb::executor::Spawner) {
         info!("waiting for DHCP...");
         net_stack.wait_config_up().await;
         info!("Stack is up!");
-        run_http_client(net_stack).await;
+        run_http_client(net_stack, rng).await;
     };
     let fut_blinky = async {
         let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(300));
@@ -992,7 +992,7 @@ async fn main(spawner: emb::executor::Spawner) {
     emb::futures::join::join3(fut_main, fut_net_runner, fut_blinky).await;
 }
 
-async fn run_http_client(net_stack: emb::net::Stack<'_>, mut rng: impl TryRng) -> ! {
+async fn run_http_client(net_stack: emb::net::Stack<'_>, mut rng: impl TryRngCore) -> ! {
     const USE_TLS: bool = false;
     let client_state = {
         const N: usize = 1;
