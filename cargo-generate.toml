@@ -22,4 +22,4 @@ type = "string"
 ignore = ["cyw43-firmware", "src/private_info.rs"]
 
 [conditional.'template != "PWM LED"']
-ignore = ["pwm_util.rs"]
+ignore = ["src/pwm_util.rs"]
