@@ -884,6 +884,7 @@ mod emb {
 
 use defmt::*;
 use static_cell::StaticCell;
+use rand_core::TryRng;
 use {defmt_rtt as _, panic_probe as _};
 
 mod private_info;
@@ -903,7 +904,7 @@ async fn cyw43_task(cyw43_runner: cyw43::Runner<'static, cyw43::SpiBus<rp::gpio:
 #[emb::executor::main]
 async fn main(spawner: emb::executor::Spawner) {
     let p = embassy_rp::init(Default::default());
-    let (net_driver, mut cyw43_control) =  {
+    let (net_driver, mut cyw43_control, rng) =  {
         let (pin_pwr, pin_dio, pin_cs, pin_clk) = (p.PIN_23, p.PIN_24, p.PIN_25, p.PIN_29);
         const PRE_DOWNLOAD_FIRMWARE: bool = true;
         let state = {
@@ -948,7 +949,8 @@ async fn main(spawner: emb::executor::Spawner) {
         while let Err(err) = cyw43_control.join(ssid, join_options.clone()).await {
             info!("join failed: {:?}", err);
         }
-        (net_driver, cyw43_control)
+        let rng = rp::clocks::RoscRng;
+        (net_driver, cyw43_control, rng)
     };
     let (net_stack, mut net_runner) = {
         const USE_DHCP: bool = true;
@@ -965,10 +967,9 @@ async fn main(spawner: emb::executor::Spawner) {
             static STATIC_CELL: StaticCell<emb::net::StackResources<3>> = StaticCell::new();
             STATIC_CELL.init(emb::net::StackResources::new())
         };
-        let mut rng = rp::clocks::RoscRng;
-        let seed = rng.next_u64();
-        let (net_stack, net_runner) = emb::net::new(net_driver, config, resources, seed);
-        (net_stack, net_runner)
+        let random_seed = rng.try_next_u64().unwrap();
+        info!("Random seed: {:016x}", random_seed);
+        emb::net::new(net_driver, config, resources, random_seed)
     };
     let fut_net_runner = net_runner.run();
     let fut_main = async {
@@ -991,7 +992,7 @@ async fn main(spawner: emb::executor::Spawner) {
     emb::futures::join::join3(fut_main, fut_net_runner, fut_blinky).await;
 }
 
-async fn run_http_client(net_stack: emb::net::Stack<'_>) -> ! {
+async fn run_http_client(net_stack: emb::net::Stack<'_>, mut rng: impl TryRng) -> ! {
     const USE_TLS: bool = false;
     let client_state = {
         const N: usize = 1;
@@ -1018,9 +1019,8 @@ async fn run_http_client(net_stack: emb::net::Stack<'_>) -> ! {
                 STATIC_CELL.init([0u8; 16640])
             };
             let tls_config = {
-                let mut rng = rp::clocks::RoscRng;
-                let seed = rng.next_u64();
-                reqwless::client::TlsConfig::new(seed, tls_read_buffer, tls_write_buffer, reqwless::client::TlsVerify::None)
+                let random_seed = rng.try_next_u64().unwrap();
+                reqwless::client::TlsConfig::new(random_seed, tls_read_buffer, tls_write_buffer, reqwless::client::TlsVerify::None)
             };
             let http_client = reqwless::client::HttpClient::new_with_tls(&tcp_client, &dns_socket, tls_config);
             let url = "https://httpbin.org/json";
