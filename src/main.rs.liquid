@@ -945,7 +945,7 @@ async fn main(spawner: emb::executor::Spawner) {
         let Ok(ssid) = str::from_utf8(&bss_info.ssid) else { continue; };
         let ssid = ssid.trim_matches('\0');
         if !ssid.is_empty() {
-            info!("Found SSID: {} {}", ssid, bss_info.ssid.len());
+            info!("Found SSID: {}", ssid);
         }
     }
 }
