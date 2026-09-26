@@ -949,6 +949,164 @@ async fn main(spawner: emb::executor::Spawner) {
         }
     }
 }
+{%- when "Wi-Fi TCP Server" -%}
+#![no_std]
+#![no_main]
+
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_futures as futures;
+    pub use embassy_net as net;
+}
+use embedded_io_async as io_async;
+
+use defmt::*;
+use static_cell::StaticCell;
+use rand_core::TryRngCore;
+use {defmt_rtt as _, panic_probe as _};
+
+mod private_info;
+
+use embassy_rp as rp;
+
+rp::bind_interrupts!(struct Irqs {
+    PIO0_IRQ_0 => rp::pio::InterruptHandler<rp::peripherals::PIO0>;
+    DMA_IRQ_0 => rp::dma::InterruptHandler<rp::peripherals::DMA_CH0>;
+});
+
+#[embassy_executor::task]
+async fn cyw43_task(cyw43_runner: cyw43::Runner<'static, cyw43::SpiBus<rp::gpio::Output<'static>, cyw43_pio::PioSpi<'static, rp::peripherals::PIO0, 0>>>) -> ! {
+    cyw43_runner.run().await;
+}
+
+#[emb::executor::main]
+async fn main(spawner: emb::executor::Spawner) {
+    let p = embassy_rp::init(Default::default());
+    let (net_driver, cyw43_control, mut rng) =  {
+        let (pin_pwr, pin_dio, pin_cs, pin_clk) = (p.PIN_23, p.PIN_24, p.PIN_25, p.PIN_29);
+        const PRE_DOWNLOAD_FIRMWARE: bool = true;
+        let state = {
+            static STATIC_CELL: StaticCell<cyw43::State> = StaticCell::new();
+            STATIC_CELL.init(cyw43::State::new())
+        };
+        let pwr = rp::gpio::Output::new(pin_pwr, rp::gpio::Level::Low);
+        let spi = {
+            let mut pio = rp::pio::Pio::new(p.PIO0, Irqs);
+            let sm = pio.sm0;
+            let clock_divider = cyw43_pio::DEFAULT_CLOCK_DIVIDER;
+            let irq = pio.irq0;
+            let cs = rp::gpio::Output::new(pin_cs, rp::gpio::Level::High);
+            let dma = rp::dma::Channel::new(p.DMA_CH0, Irqs);
+            cyw43_pio::PioSpi::new(&mut pio.common, sm, clock_divider, irq, cs, pin_dio, pin_clk, dma)
+        };
+        let (fw, cyw43_clm) = if PRE_DOWNLOAD_FIRMWARE {
+            // Use pre-downloaded firmware
+            // $ probe-rs download cyw43-firmware/43439A0.bin --binary-format bin --chip RP2040 --base-address 0x10180000
+            // $ probe-rs download cyw43-firmware/43439A0_clm.bin --binary-format bin --chip RP2040 --base-address 0x101c0000
+            let fw = unsafe {
+                &*(core::ptr::slice_from_raw_parts(0x10180000 as *const u8, 231077)
+                    as *const cyw43::Aligned<cyw43::A4, [u8]>)
+            };
+            let cyw43_clm = unsafe {
+                &*(core::ptr::slice_from_raw_parts(0x101c0000 as *const u8, 984)
+                    as *const cyw43::Aligned<cyw43::A4, [u8]>)
+            };
+            (fw, cyw43_clm)
+        } else {
+            let fw = cyw43::aligned_bytes!("../cyw43-firmware/43439A0.bin");
+            let cyw43_clm = cyw43::aligned_bytes!("../cyw43-firmware/43439A0_clm.bin");
+            (fw, cyw43_clm)
+        };
+        let nvram = cyw43::aligned_bytes!("../cyw43-firmware/nvram_rp2040.bin");
+        let (net_driver, mut cyw43_control, cyw43_runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
+        spawner.spawn(cyw43_task(cyw43_runner).unwrap());
+        cyw43_control.init(cyw43_clm).await;
+        cyw43_control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
+        let ssid = private_info::WIFI_SSID;
+        let join_options = cyw43::JoinOptions::new(private_info::WIFI_PASSWORD.as_bytes());
+        while let Err(err) = cyw43_control.join(ssid, join_options.clone()).await {
+            info!("join failed: {:?}", err);
+        }
+        let rng = rp::clocks::RoscRng;
+        (net_driver, cyw43_control, rng)
+    };
+    let (net_stack, mut net_runner) = {
+        const USE_DHCP: bool = true;
+        let config = if USE_DHCP {
+            emb::net::Config::dhcpv4(Default::default())
+        } else {
+            let address = emb::net::Ipv4Cidr::new(emb::net::Ipv4Address::new(192, 168, 0, 100), 24);
+            let mut dns_servers = heapless::Vec::<emb::net::Ipv4Address, 3>::new();
+            dns_servers.push(emb::net::Ipv4Address::new(192, 168, 0, 1)).unwrap();
+            let gateway = Some(emb::net::Ipv4Address::new(192, 168, 0, 1));
+            emb::net::Config::ipv4_static(emb::net::StaticConfigV4 {address, dns_servers, gateway})
+        };
+        let resources = {
+            static STATIC_CELL: StaticCell<emb::net::StackResources<3>> = StaticCell::new();
+            STATIC_CELL.init(emb::net::StackResources::new())
+        };
+        let random_seed = rng.try_next_u64().unwrap();
+        info!("Random seed: {:016x}", random_seed);
+        emb::net::new(net_driver, config, resources, random_seed)
+    };
+    let fut_net_runner = net_runner.run();
+    let fut_main = async {
+        info!("waiting for link...");
+        net_stack.wait_link_up().await;
+        info!("waiting for DHCP...");
+        net_stack.wait_config_up().await;
+        info!("Stack is up!");
+        run_tcp_server(net_stack, cyw43_control).await;
+    };
+    emb::futures::join::join(fut_main, fut_net_runner).await;
+}
+
+async fn run_tcp_server(net_stack: emb::net::Stack<'_>, mut cyw43_control: cyw43::Control<'_>) -> ! {
+    let rx_buf = {
+        const BUF_SIZE: usize = 4096;
+        static STATIC_CELL: StaticCell<[u8; BUF_SIZE]> = StaticCell::new();
+        STATIC_CELL.init([0u8; BUF_SIZE])
+    };
+    let tx_buf = {
+        const BUF_SIZE: usize = 4096;
+        static STATIC_CELL: StaticCell<[u8; BUF_SIZE]> = StaticCell::new();
+        STATIC_CELL.init([0u8; BUF_SIZE])
+    };
+    loop {
+        let mut socket = emb::net::tcp::TcpSocket::new(net_stack, rx_buf, tx_buf);
+        //socket.set_timeout(Some(emb::time::Duration::from_secs(10)));
+        cyw43_control.gpio_set(0, false).await;
+        if let Some(config) = net_stack.config_v4() {
+            info!("Listening on {}:1234...", config.address.address());
+        }
+        if let Err(e) = socket.accept(1234).await {
+            warn!("accept error: {:?}", e);
+            continue;
+        }
+        if let Some(remote_endpoint) = socket.remote_endpoint() {
+            info!("Connected {:?}", remote_endpoint);
+            cyw43_control.gpio_set(0, true).await;
+            task_echo(socket).await;
+        }
+    }
+}
+
+async fn task_echo(mut reader_writer: impl io_async::Read + io_async::Write) {
+    info!("Starting echo task");
+    let mut buf = [0u8; 16];
+    reader_writer.write_all(b"Enter any keystrokes:\r\n").await.ok();
+    reader_writer.flush().await.ok();
+    loop {
+        let buf_read = match reader_writer.read(&mut buf).await {
+            Ok(0) => { break; }
+            Ok(len) => { &buf[..len] }
+            Err(_) => { break; }
+        };
+        reader_writer.write_all(buf_read).await.ok();
+        reader_writer.flush().await.ok();
+    }
+    info!("Disconnected");
+}
 {%- when "Wi-Fi HTTP Client" -%}
 #![no_std]
 #![no_main]

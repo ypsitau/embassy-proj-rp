@@ -54,7 +54,7 @@ time = { version = "0.3.55", default-features = false } # no_std
 cyw43 = { version = "0.7.0", features = ["defmt"] }
 cyw43-pio = { version = "0.10.0" }
 
-{% when "Wi-Fi HTTP Client" -%}
+{% when "Wi-Fi TCP Server" or "Wi-Fi HTTP Client" -%}
 cyw43 = { version = "0.7.0", features = ["defmt"] }
 cyw43-pio = { version = "0.10.0" }
 embassy-net = { version = "0.9.1", features = [
