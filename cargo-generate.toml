@@ -22,8 +22,8 @@ type = "string"
 [conditional.'template != "PWM LED"']
 ignore = ["src/pwm_util.rs"]
 
-[conditional.'template != "Wi-Fi Scan"']
+[conditional.'template != "Wi-Fi Scan" and template != "Wi-Fi HTTP Client"']
 ignore = ["cyw43-firmware"]
 
 [conditional.'template != "Wi-Fi HTTP Client"']
-ignore = ["cyw43-firmware", "src/private_info.rs"]
+ignore = ["src/private_info.rs"]
