@@ -50,7 +50,13 @@ ssd1306 = { version = "0.10.0", features = ["async"] }
 embedded-graphics = { version = "0.8.2" }
 time = { version = "0.3.55", default-features = false } # no_std
 
+{% when "Wi-Fi Scan" -%}
+cyw43 = { version = "0.7.0", features = ["defmt"] }
+cyw43-pio = { version = "0.10.0" }
+
 {% when "Wi-Fi HTTP Client" -%}
+cyw43 = { version = "0.7.0", features = ["defmt"] }
+cyw43-pio = { version = "0.10.0" }
 embassy-net = { version = "0.9.1", features = [
     "icmp", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet", "dns",
     "proto-ipv4", "proto-ipv6", "multicast",
@@ -62,8 +68,6 @@ reqwless = { git = "https://github.com/drogue-iot/reqwless",
 }
 serde = { version = "1.0.229", default-features = false, features = ["derive"] }
 serde-json-core = { version = "0.5.1" }
-cyw43 = { version = "0.7.0", features = ["defmt"] }
-cyw43-pio = { version = "0.10.0" }
 
 {% endcase -%}
 
