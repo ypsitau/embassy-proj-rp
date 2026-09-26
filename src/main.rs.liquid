@@ -1025,7 +1025,7 @@ async fn main(spawner: emb::executor::Spawner) {
         let ssid = private_info::WIFI_SSID;
         let join_options = cyw43::JoinOptions::new(private_info::WIFI_PASSWORD.as_bytes());
         while let Err(err) = cyw43_control.join(ssid, join_options.clone()).await {
-            info!("join failed: {:?}", err);
+            info!("Join failed. Edit private_info.rs with correct Wi-Fi credentials.");
         }
         let rng = rp::clocks::RoscRng;
         (net_driver, cyw43_control, rng)
@@ -1183,7 +1183,7 @@ async fn main(spawner: emb::executor::Spawner) {
         let ssid = private_info::WIFI_SSID;
         let join_options = cyw43::JoinOptions::new(private_info::WIFI_PASSWORD.as_bytes());
         while let Err(err) = cyw43_control.join(ssid, join_options.clone()).await {
-            info!("join failed: {:?}", err);
+            info!("Join failed. Edit private_info.rs with correct Wi-Fi credentials.");
         }
         let rng = rp::clocks::RoscRng;
         (net_driver, cyw43_control, rng)
