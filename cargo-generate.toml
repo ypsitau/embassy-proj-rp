@@ -19,11 +19,11 @@ choices = [
 default = "Blinky"
 type = "string"
 
-[conditional.'template != "PWM LED"']
+[conditional.'!(template == "PWM LED")']
 ignore = ["src/pwm_util.rs"]
 
-[conditional.'template != "Wi-Fi Scan" and template != "Wi-Fi HTTP Client"']
+[conditional.'!(template == "Wi-Fi Scan" || template == "Wi-Fi HTTP Client")']
 ignore = ["cyw43-firmware"]
 
-[conditional.'template != "Wi-Fi HTTP Client"']
+[conditional.'!(template == "Wi-Fi HTTP Client")']
 ignore = ["src/private_info.rs"]
