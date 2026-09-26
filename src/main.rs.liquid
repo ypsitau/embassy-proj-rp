@@ -940,10 +940,12 @@ async fn main(spawner: emb::executor::Spawner) {
         cyw43_control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
         (net_driver, cyw43_control)
     };
-    let mut scan_results = cyw43_control.scan(Default::default()).await;
-    while let Some(scan_result) = scan_results.next().await {
-        if let Ok(ssid) = str::from_utf8(&scan_result.ssid) {
-            info!("Found SSID: {}", ssid);
+    let mut scanner = cyw43_control.scan(Default::default()).await;
+    while let Some(bss_info) = scanner.next().await {
+        let Ok(ssid) = str::from_utf8(&bss_info.ssid) else { continue; };
+        let ssid = ssid.trim_matches('\0');
+        if !ssid.is_empty() {
+            info!("Found SSID: {} {}", ssid, bss_info.ssid.len());
         }
     }
 }
