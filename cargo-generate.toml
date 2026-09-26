@@ -13,13 +13,17 @@ choices = [
     "USB Device HID Keyboard and Mouse",
     "I2C SSD1306",
     "I2C SSD1306 + DS3231",
+    "Wi-Fi Scan",
     "Wi-Fi HTTP Client"
 ]
 default = "Blinky"
 type = "string"
 
-[conditional.'template != "Wi-Fi HTTP Client"']
-ignore = ["cyw43-firmware", "src/private_info.rs"]
-
 [conditional.'template != "PWM LED"']
 ignore = ["src/pwm_util.rs"]
+
+[conditional.'template != "Wi-Fi Scan"']
+ignore = ["cyw43-firmware"]
+
+[conditional.'template != "Wi-Fi HTTP Client"']
+ignore = ["cyw43-firmware", "src/private_info.rs"]
