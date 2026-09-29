@@ -716,6 +716,7 @@ async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
     target.init().await.unwrap();
     let character_style = eg::mono_font::MonoTextStyleBuilder::new()
         .font(&eg_fonts::FONT_10X20).text_color(ColorType::On).build();
+    let text_style = eg::text::TextStyleBuilder::new().baseline(eg::text::Baseline::Top).build();
     let mut sbuf: String<16> = String::new();
     let style_dot = eg::primitives::PrimitiveStyleBuilder::new().fill_color(ColorType::On).build();
     let size_display = {
@@ -731,8 +732,8 @@ async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
         target.clear(ColorType::Off).unwrap();
         sbuf.clear();
         write!(sbuf, "Frame: {}", i_frame).unwrap();
-        eg::text::Text::with_baseline(sbuf.as_str(), Point::new(0, 0), character_style,
-            eg::text::Baseline::Top).draw(&mut target).unwrap();
+        eg::text::Text::with_text_style(sbuf.as_str(), Point::new(0, 0), character_style, text_style)
+            .draw(&mut target).unwrap();
         eg::primitives::Rectangle::new(Point::new(x, y), size_dot)
             .into_styled(style_dot).draw(&mut target).unwrap();
         i_frame += 1;
@@ -826,6 +827,8 @@ async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_
     let mut ds3231 = Ds3231::new(i2c_ds3231);
     let character_style = eg::mono_font::MonoTextStyleBuilder::new()
         .font(&eg_fonts::FONT_10X20).text_color(ColorType::On).build();
+    let text_style = eg::text::TextStyleBuilder::new()
+        .alignment(eg::text::Alignment::Center).baseline(eg::text::Baseline::Middle).build();
     let mut sbuf: String<32> = String::new();
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
     loop {
@@ -837,8 +840,6 @@ async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_
         } else {
             write!(sbuf, "--:--:--").unwrap();
         }
-        let text_style = eg::text::TextStyleBuilder::new()
-            .alignment(eg::text::Alignment::Center).baseline(eg::text::Baseline::Middle).build();
         eg::text::Text::with_text_style(sbuf.as_str(), target.bounding_box().center(),
             character_style, text_style).draw(&mut target).unwrap();
         target.flush().await.unwrap();
