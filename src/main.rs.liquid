@@ -714,7 +714,7 @@ async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
         ssd1306::Ssd1306Async::new(interface, size, rotation).into_buffered_graphics_mode()
     };
     target.init().await.unwrap();
-    let text_style = eg::mono_font::MonoTextStyleBuilder::new()
+    let character_style = eg::mono_font::MonoTextStyleBuilder::new()
         .font(&eg_fonts::FONT_10X20).text_color(ColorType::On).build();
     let mut sbuf: String<16> = String::new();
     let style_dot = eg::primitives::PrimitiveStyleBuilder::new().fill_color(ColorType::On).build();
@@ -731,7 +731,7 @@ async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
         target.clear(ColorType::Off).unwrap();
         sbuf.clear();
         write!(sbuf, "Frame: {}", i_frame).unwrap();
-        eg::text::Text::with_baseline(sbuf.as_str(), Point::new(0, 0), text_style,
+        eg::text::Text::with_baseline(sbuf.as_str(), Point::new(0, 0), character_style,
             eg::text::Baseline::Top).draw(&mut target).unwrap();
         eg::primitives::Rectangle::new(Point::new(x, y), size_dot)
             .into_styled(style_dot).draw(&mut target).unwrap();
@@ -778,6 +778,10 @@ use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
+use embedded_graphics as eg;
+use embedded_graphics::mono_font::ascii as eg_fonts;
+type ColorType = eg::pixelcolor::BinaryColor;
+
 use embassy_rp as rp;
 
 type AsyncMutexNoop<T> = emb::sync::mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
@@ -811,7 +815,6 @@ async fn main(_spawner: emb::executor::Spawner) {
 async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_async::i2c::I2c) {
     info!("Starting clock task");
     use ssd1306::prelude::*;
-    use embedded_graphics as eg;
     use embedded_graphics::prelude::*;
     let mut display = {
         let interface = ssd1306::I2CDisplayInterface::new(i2c_ssd1306);
@@ -819,17 +822,14 @@ async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_
         let rotation = ssd1306::rotation::DisplayRotation::Rotate0;
         ssd1306::Ssd1306Async::new(interface, size, rotation).into_buffered_graphics_mode()
     };
-    let mut buf = [0u8; 1];
     display.init().await.unwrap();
     let mut ds3231 = Ds3231::new(i2c_ds3231);
-    let text_style = eg::mono_font::MonoTextStyleBuilder::new()
-        .font(&eg::mono_font::ascii::FONT_10X20)
-        .text_color(eg::pixelcolor::BinaryColor::On)
-        .build();
+    let character_style = eg::mono_font::MonoTextStyleBuilder::new()
+        .font(&eg_fonts::FONT_10X20).text_color(ColorType::On).build();
     let mut sbuf: String<32> = String::new();
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
     loop {
-        display.clear(eg::pixelcolor::BinaryColor::Off).unwrap();
+        display.clear(ColorType::Off).unwrap();
         sbuf.clear();
         if let Ok(now) = ds3231.read().await {
             write!(sbuf, "{:02}:{:02}:{:02}",
@@ -837,8 +837,10 @@ async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_
         } else {
             write!(sbuf, "--:--:--").unwrap();
         }
-        eg::text::Text::with_baseline(sbuf.as_str(), Point::new(0, 0),
-            text_style, eg::text::Baseline::Top).draw(&mut display).unwrap();
+        let text_style = eg::text::TextStyleBuilder::new()
+            .alignment(eg::text::Alignment::Center).baseline(eg::text::Baseline::Middle).build();
+        eg::text::Text::with_text_style(sbuf.as_str(), display.bounding_box().center(),
+            character_style, text_style).draw(&mut display).unwrap();
         display.flush().await.unwrap();
         ticker.next().await;
     }
