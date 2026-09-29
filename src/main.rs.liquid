@@ -816,20 +816,20 @@ async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_
     info!("Starting clock task");
     use ssd1306::prelude::*;
     use embedded_graphics::prelude::*;
-    let mut display = {
+    let mut target = {
         let interface = ssd1306::I2CDisplayInterface::new(i2c_ssd1306);
         let size = ssd1306::size::DisplaySize128x64;
         let rotation = ssd1306::rotation::DisplayRotation::Rotate0;
         ssd1306::Ssd1306Async::new(interface, size, rotation).into_buffered_graphics_mode()
     };
-    display.init().await.unwrap();
+    target.init().await.unwrap();
     let mut ds3231 = Ds3231::new(i2c_ds3231);
     let character_style = eg::mono_font::MonoTextStyleBuilder::new()
         .font(&eg_fonts::FONT_10X20).text_color(ColorType::On).build();
     let mut sbuf: String<32> = String::new();
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
     loop {
-        display.clear(ColorType::Off).unwrap();
+        target.clear(ColorType::Off).unwrap();
         sbuf.clear();
         if let Ok(now) = ds3231.read().await {
             write!(sbuf, "{:02}:{:02}:{:02}",
@@ -839,9 +839,9 @@ async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_
         }
         let text_style = eg::text::TextStyleBuilder::new()
             .alignment(eg::text::Alignment::Center).baseline(eg::text::Baseline::Middle).build();
-        eg::text::Text::with_text_style(sbuf.as_str(), display.bounding_box().center(),
-            character_style, text_style).draw(&mut display).unwrap();
-        display.flush().await.unwrap();
+        eg::text::Text::with_text_style(sbuf.as_str(), target.bounding_box().center(),
+            character_style, text_style).draw(&mut target).unwrap();
+        target.flush().await.unwrap();
         ticker.next().await;
     }
 }
