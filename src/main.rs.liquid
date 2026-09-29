@@ -664,6 +664,10 @@ use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
+use embedded_graphics as eg;
+use embedded_graphics::mono_font::ascii as eg_fonts;
+type ColorType = eg::pixelcolor::BinaryColor;
+
 use embassy_rp as rp;
 
 type AsyncMutexNoop<T> = emb::sync::mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
@@ -696,7 +700,6 @@ async fn main(_spawner: emb::executor::Spawner) {
 async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
     info!("Starting display task");
     use ssd1306::prelude::*;
-    use embedded_graphics as eg;
     use embedded_graphics::prelude::*;
     enum Direction { Inc, Dec }
     impl Direction {
@@ -704,23 +707,19 @@ async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
             *value += match self { Self::Inc => 1, Self::Dec => -1 };
         }
     }
-    let mut display = {
+    let mut target = {
         let interface = ssd1306::I2CDisplayInterface::new(i2c_ssd1306);
         let size = ssd1306::size::DisplaySize128x64;
         let rotation = ssd1306::rotation::DisplayRotation::Rotate0;
         ssd1306::Ssd1306Async::new(interface, size, rotation).into_buffered_graphics_mode()
     };
-    display.init().await.unwrap();
+    target.init().await.unwrap();
     let text_style = eg::mono_font::MonoTextStyleBuilder::new()
-        .font(&eg::mono_font::ascii::FONT_10X20)
-        .text_color(eg::pixelcolor::BinaryColor::On)
-        .build();
+        .font(&eg_fonts::FONT_10X20).text_color(ColorType::On).build();
     let mut sbuf: String<16> = String::new();
-    let style_dot = eg::primitives::PrimitiveStyleBuilder::new()
-        .fill_color(eg::pixelcolor::BinaryColor::On)
-        .build();
+    let style_dot = eg::primitives::PrimitiveStyleBuilder::new().fill_color(ColorType::On).build();
     let size_display = {
-        let (width, height) = display.dimensions();
+        let (width, height) = target.dimensions();
         Size::new(width as u32, height as u32)
     };
     let size_dot = Size::new(8, 8);
@@ -729,15 +728,13 @@ async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
     let (mut x_dir, mut y_dir) = (Direction::Inc, Direction::Inc);
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(10));
     loop {
-        display.clear(eg::pixelcolor::BinaryColor::Off).unwrap();
+        target.clear(ColorType::Off).unwrap();
         sbuf.clear();
         write!(sbuf, "Frame: {}", i_frame).unwrap();
-        eg::text::Text::with_baseline(
-            sbuf.as_str(), Point::new(0, 0), text_style, eg::text::Baseline::Top
-        ).draw(&mut display).unwrap();
-        eg::primitives::Rectangle::new(
-            Point::new(x, y), size_dot
-        ).into_styled(style_dot).draw(&mut display).unwrap();
+        eg::text::Text::with_baseline(sbuf.as_str(), Point::new(0, 0), text_style,
+            eg::text::Baseline::Top).draw(&mut target).unwrap();
+        eg::primitives::Rectangle::new(Point::new(x, y), size_dot)
+            .into_styled(style_dot).draw(&mut target).unwrap();
         i_frame += 1;
         if x >= (size_display.width - size_dot.width) as i32 {
             x_dir = Direction::Dec;
@@ -751,7 +748,7 @@ async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
         }
         x_dir.step(&mut x);
         y_dir.step(&mut y);
-        display.flush().await.unwrap();
+        target.flush().await.unwrap();
         ticker.next().await;
     }
 }
@@ -1024,7 +1021,7 @@ async fn main(spawner: emb::executor::Spawner) {
         cyw43_control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
         let ssid = private_info::WIFI_SSID;
         let join_options = cyw43::JoinOptions::new(private_info::WIFI_PASSWORD.as_bytes());
-        while let Err(err) = cyw43_control.join(ssid, join_options.clone()).await {
+        while let Err(_) = cyw43_control.join(ssid, join_options.clone()).await {
             info!("Join failed. Edit private_info.rs with correct Wi-Fi credentials.");
         }
         let rng = rp::clocks::RoscRng;
@@ -1182,7 +1179,7 @@ async fn main(spawner: emb::executor::Spawner) {
         cyw43_control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
         let ssid = private_info::WIFI_SSID;
         let join_options = cyw43::JoinOptions::new(private_info::WIFI_PASSWORD.as_bytes());
-        while let Err(err) = cyw43_control.join(ssid, join_options.clone()).await {
+        while let Err(_) = cyw43_control.join(ssid, join_options.clone()).await {
             info!("Join failed. Edit private_info.rs with correct Wi-Fi credentials.");
         }
         let rng = rp::clocks::RoscRng;
