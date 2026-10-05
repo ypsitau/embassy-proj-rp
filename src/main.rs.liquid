@@ -670,7 +670,7 @@ type ColorType = eg::pixelcolor::BinaryColor;
 
 use embassy_rp as rp;
 
-type AsyncMutexNoop<T> = emb::sync::mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
+pub type AsyncMutexNoop<T> = emb::sync::mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
 
 rp::bind_interrupts!(struct Irqs {
     I2C0_IRQ => rp::i2c::InterruptHandler<rp::peripherals::I2C0>;
@@ -685,10 +685,9 @@ async fn main(_spawner: emb::executor::Spawner) {
             let pin_scl = p.PIN_17;
             let mut config = rp::i2c::Config::default();
             config.frequency = 400_000;
-            let i2c0 = rp::i2c::I2c::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config);
-            static STATIC_CELL: StaticCell<AsyncMutexNoop<
-                rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>>> = StaticCell::new();
-            STATIC_CELL.init(AsyncMutexNoop::new(i2c0))
+            type I2c0 = rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>;
+            static STATIC_CELL: StaticCell<AsyncMutexNoop<I2c0>> = StaticCell::new();
+            STATIC_CELL.init(AsyncMutexNoop::new(I2c0::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
         };
         let i2c_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
         (i2c_ssd1306,)
@@ -800,10 +799,9 @@ async fn main(_spawner: emb::executor::Spawner) {
             let pin_scl = p.PIN_17;
             let mut config = rp::i2c::Config::default();
             config.frequency = 400_000;
-            let i2c0 = rp::i2c::I2c::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config);
-            static STATIC_CELL: StaticCell<AsyncMutexNoop<
-                rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>>> = StaticCell::new();
-            STATIC_CELL.init(AsyncMutexNoop::new(i2c0))
+            type I2c0 = rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>;
+            static STATIC_CELL: StaticCell<AsyncMutexNoop<I2c0>> = StaticCell::new();
+            STATIC_CELL.init(AsyncMutexNoop::new(I2c0::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
         };
         let i2c_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
         let i2c_ds3231 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
@@ -829,7 +827,7 @@ async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_
         .font(&eg_fonts::FONT_10X20).text_color(ColorType::On).build();
     let text_style = eg::text::TextStyleBuilder::new()
         .alignment(eg::text::Alignment::Center).baseline(eg::text::Baseline::Middle).build();
-    let mut sbuf: String<32> = String::new();
+    let mut sbuf = String::<32>::new();
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
     loop {
         target.clear(ColorType::Off).unwrap();
