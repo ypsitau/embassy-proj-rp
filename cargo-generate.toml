@@ -2,6 +2,15 @@
 cargo_generate_version = ">=0.18.0"
 exclude = ["cyw43-firmware"]
 
+[placeholders.target]
+prompt = "Choose a target"
+choices = [
+    "rp2040",
+    "rp2350",
+]
+default = "rp2350"
+type = "string"
+
 [placeholders.template]
 prompt = "Choose a template"
 choices = [
