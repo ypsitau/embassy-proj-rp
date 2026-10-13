@@ -9,34 +9,37 @@ mod emb {
     pub use embassy_time as time;
 }
 use embedded_hal_1 as hal;
-
+use embedded_hal_1::digital::OutputPin as _;
 use defmt::info;
-use {defmt_rtt as _, panic_probe as _};
 
-use embassy_rp as rp;
+struct Board<OutputPin> {
+    pin_led: OutputPin,
+}
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
-    let (pin_led,) = {
-        let p = rp::init(Default::default());
-        let pin_led = p.PIN_25;
-        let pin_led = rp::gpio::Output::new(pin_led, rp::gpio::Level::Low);
-        (pin_led,)
-    };
-    let fut_task_blinky = task_blinky(pin_led);
-    fut_task_blinky.await;
-}
-
-async fn task_blinky(mut pin_led: impl hal::digital::OutputPin)
-{
+    let mut board = init_board();
     info!("Starting task_blinky");
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
     loop {
-        pin_led.set_high().ok();
+        board.pin_led.set_high().ok();
         ticker.next().await;
-        pin_led.set_low().ok();
+        board.pin_led.set_low().ok();
         ticker.next().await;
     }
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+fn init_board() -> Board<impl hal::digital::OutputPin> {
+    let p = rp::init(Default::default());
+    let pin_led = p.PIN_25;
+    let pin_led = rp::gpio::Output::new(pin_led, rp::gpio::Level::Low);
+    Board { pin_led }
 }
 {%- when "GPIO In/Out" -%}
 //! GPIO In/Out example using Embassy and async/await.
@@ -44,7 +47,7 @@ async fn task_blinky(mut pin_led: impl hal::digital::OutputPin)
 //! ## Pin Assignment
 //! | Raspberry Pi Pico | Function |
 //! |-------------------|----------|
-//! | GPIO15            | Switch to GND  |
+//! | GPIO16            | Switch to GND  |
 #![no_std]
 #![no_main]
 
@@ -54,43 +57,44 @@ mod emb {
 }
 use embedded_hal_1 as hal;
 use embedded_hal_async as hal_async;
-
+use embedded_hal_1::digital::{OutputPin as _, InputPin as _};
+use embedded_hal_async::digital::Wait as _;
 use defmt::info;
-use {defmt_rtt as _, panic_probe as _};
 
-use embassy_rp as rp;
+struct Board<InputPin, OutputPin> {
+    pin_sw: InputPin,
+    pin_led: OutputPin,
+}
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
-    let (pin_sw, pin_led) = {
-        let p = rp::init(Default::default());
-        let (pin_sw, pin_led) = (p.PIN_15, p.PIN_25);
-        let pin_sw = rp::gpio::Input::new(pin_sw, rp::gpio::Pull::Up);
-        let pin_led = rp::gpio::Output::new(pin_led, rp::gpio::Level::Low);
-        (pin_sw, pin_led)
-    };
-    let fut_task_pin_in_out = task_pin_in_out(pin_sw, pin_led);
-    fut_task_pin_in_out.await;
-}
-
-async fn task_pin_in_out<InputPin, OutputPin>(mut pin_sw: InputPin, mut pin_led: OutputPin)
-where
-    InputPin: hal::digital::InputPin + hal_async::digital::Wait,
-    OutputPin: hal::digital::OutputPin,
-{
+    let mut board = init_board();
     info!("Starting task_pin_in_out");
     loop {
-        let is_pushed = pin_sw.is_low().unwrap();
+        let is_pushed = board.pin_sw.is_low().unwrap();
         if is_pushed {
             info!("Button pressed");
-            pin_led.set_high().ok();
+            board.pin_led.set_high().ok();
         } else {
             info!("Button released");
-            pin_led.set_low().ok();
+            board.pin_led.set_low().ok();
         }
-        pin_sw.wait_for_any_edge().await.ok();
+        board.pin_sw.wait_for_any_edge().await.ok();
         emb::time::Timer::after_millis(30).await;    // debounce delay
     }
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+fn init_board() -> Board<impl hal::digital::InputPin + hal_async::digital::Wait, impl hal::digital::OutputPin> {
+    let p = rp::init(Default::default());
+    let pin_sw = rp::gpio::Input::new(p.PIN_16, rp::gpio::Pull::Up);
+    let pin_led = rp::gpio::Output::new(p.PIN_25, rp::gpio::Level::Low);
+    Board { pin_sw, pin_led }
 }
 {%- when "PWM LED" -%}
 //! PWM example using Embassy.
@@ -104,44 +108,47 @@ mod emb {
     pub use embassy_time as time;
 }
 use embedded_hal_1 as hal;
-
+use embedded_hal_1::pwm::SetDutyCycle as _; // for set_duty_cycle_fraction()
 use defmt::info;
-use fixed::traits::ToFixed as _;        // for to_fixed()
-use {defmt_rtt as _, panic_probe as _};
+use fixed::traits::ToFixed as _;            // for to_fixed()
 
-use embassy_rp as rp;
+struct Board<SetDutyCycle> {
+    pwm_led: SetDutyCycle,
+}
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
-    let (pwm_led,) = {
-        let p = rp::init(Default::default());
-        let pwm_led = {
-            let (divider, top) = pwm_util::calc_divider_and_top(rp::clocks::clk_sys_freq(), 1000);
-            let mut config = rp::pwm::Config::default();
-            config.divider = divider.to_fixed();
-            config.top = top;
-            rp::pwm::Pwm::new_output_b(p.PWM_SLICE4, p.PIN_25, config)
-        };
-        (pwm_led,)
-    };
-    let fut_task_dim_led = task_dim_led(pwm_led);
-    fut_task_dim_led.await;
-}
-
-async fn task_dim_led(mut pwm_led: impl hal::pwm::SetDutyCycle)
-{
+    let mut board = init_board();
     info!("Starting task_dim_led");
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
     loop {
-        pwm_led.set_duty_cycle_fraction(100, 100).ok();
+        board.pwm_led.set_duty_cycle_fraction(100, 100).ok();
         ticker.next().await;
-        pwm_led.set_duty_cycle_fraction(66, 100).ok();
+        board.pwm_led.set_duty_cycle_fraction(66, 100).ok();
         ticker.next().await;
-        pwm_led.set_duty_cycle_fraction(33, 100).ok();
+        board.pwm_led.set_duty_cycle_fraction(33, 100).ok();
         ticker.next().await;
-        pwm_led.set_duty_cycle_fraction(0, 100).ok();
+        board.pwm_led.set_duty_cycle_fraction(0, 100).ok();
         ticker.next().await;
     }
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+fn init_board() -> Board<impl hal::pwm::SetDutyCycle> {
+    let p = rp::init(Default::default());
+    let pwm_led = {
+        let (divider, top) = pwm_util::calc_divider_and_top(rp::clocks::clk_sys_freq(), 1000);
+        let mut config = rp::pwm::Config::default();
+        config.divider = divider.to_fixed();
+        config.top = top;
+        rp::pwm::Pwm::new_output_b(p.PWM_SLICE4, p.PIN_25, config)
+    };
+    Board { pwm_led }
 }
 {%- when "UART Echo" -%}
 //! UART Echo example using Embassy and async/await.
@@ -158,61 +165,68 @@ mod emb {
     pub use embassy_executor as executor;
 }
 use embedded_io_async as io_async;
-
+use embedded_io_async::{Read as _, Write as _};
 use defmt::info;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
-use embassy_rp as rp;
-
-rp::bind_interrupts!(struct Irqs {
-    UART0_IRQ => rp::uart::BufferedInterruptHandler<rp::peripherals::UART0>;
-});
+struct Board<Uart> {
+    uart: Uart,
+}
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
-    let (uart,) = {
-        let p = rp::init(Default::default());
-        let pin_tx = p.PIN_0;
-        let pin_rx = p.PIN_1;
-        let tx_buffer = {
-            const TX_BUFFER_SIZE: usize = 64;
-            static STATIC_CELL: StaticCell<[u8; TX_BUFFER_SIZE]> = StaticCell::new();
-            STATIC_CELL.init([0u8; TX_BUFFER_SIZE])
-        };
-        let rx_buffer = {
-            const RX_BUFFER_SIZE: usize = 64;
-            static STATIC_CELL: StaticCell<[u8; RX_BUFFER_SIZE]> = StaticCell::new();
-            STATIC_CELL.init([0u8; RX_BUFFER_SIZE])
-        };
-        let config = rp::uart::Config::default();
-        let uart = rp::uart::BufferedUart::new(p.UART0, pin_tx, pin_rx, Irqs, tx_buffer, rx_buffer, config);
-        (uart,)
-    };
-    task_echo(uart,).await;
-}
-
-async fn task_echo(mut reader_writer: impl io_async::Read + io_async::Write) -> ! {
+    let mut board = init_board();
     info!("Starting echo task");
     const BUFSIZE: usize = 16;
     let buf = {
         static STATIC_CELL: StaticCell<[u8; BUFSIZE]> = StaticCell::new();
         STATIC_CELL.init([0u8; BUFSIZE])
     };
-    reader_writer.write_all(b"Enter any keystrokes:\r\n").await.ok();
-    reader_writer.flush().await.ok();
+    board.uart.write_all(b"Enter any keystrokes:\r\n").await.ok();
+    board.uart.flush().await.ok();
     loop {
-        match reader_writer.read(buf).await {
+        match board.uart.read(buf).await {
             Ok(len) => {
-                reader_writer.write_all(&buf[..len]).await.ok();
-                reader_writer.flush().await.ok();
+                board.uart.write_all(&buf[..len]).await.ok();
+                board.uart.flush().await.ok();
             }
             Err(_) => {
-                reader_writer.write_all(b"error in reading\r\n").await.ok();
-                reader_writer.flush().await.ok();
+                board.uart.write_all(b"error in reading\r\n").await.ok();
+                board.uart.flush().await.ok();
             }
         }
     }
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+rp::bind_interrupts!(struct Irqs {
+    UART0_IRQ => rp::uart::BufferedInterruptHandler<rp::peripherals::UART0>;
+});
+
+fn init_board() -> Board<impl io_async::Read + io_async::Write> {
+    let p = rp::init(Default::default());
+    let uart = {
+        let pin_tx = p.PIN_0;
+        let pin_rx = p.PIN_1;
+        let tx_buffer = {
+            const TX_BUFSIZE: usize = 64;
+            static STATIC_CELL: StaticCell<[u8; TX_BUFSIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; TX_BUFSIZE])
+        };
+        let rx_buffer = {
+            const RX_BUFSIZE: usize = 64;
+            static STATIC_CELL: StaticCell<[u8; RX_BUFSIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; RX_BUFSIZE])
+        };
+        let config = rp::uart::Config::default();
+        rp::uart::BufferedUart::new(p.UART0, pin_tx, pin_rx, Irqs, tx_buffer, rx_buffer, config)
+    };
+    Board { uart }
 }
 {%- when "USB Device CDC" -%}
 //! USB Device CDC example using Embassy and async/await.
@@ -225,30 +239,17 @@ mod emb {
     pub use embassy_usb as usb;
 }
 use embedded_io_async as io_async;
-
 use core::sync::atomic;
 use defmt::info;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
-use embassy_rp as rp;
-
-rp::bind_interrupts!(struct Irqs {
-    USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
-});
+struct Board<UsbDriver> {
+    usb_driver: UsbDriver,
+}
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
-    let (usb_driver,) = {
-        let p = rp::init(Default::default());
-        let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
-        (usb_driver,)
-    };
-    let fut_task_usb = task_usb(usb_driver);
-    fut_task_usb.await;
-}
-
-async fn task_usb(usb_driver: impl emb::usb::driver::Driver<'static>) {
+    let board = init_board();
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
         const PID: u16 = 0xcafe;
@@ -258,7 +259,7 @@ async fn task_usb(usb_driver: impl emb::usb::driver::Driver<'static>) {
         const CONTROL_BUF_SIZE: usize = 64;
         let mut usb_config = emb::usb::Config::new(VID, PID);
         usb_config.manufacturer = Some("Embassy");
-        usb_config.product = Some("{{project-name}}");
+        usb_config.product = Some("hoge");
         usb_config.serial_number = Some("12345678");
         usb_config.max_power = 100;
         usb_config.max_packet_size_0 = CONTROL_BUF_SIZE as u8;
@@ -282,7 +283,7 @@ async fn task_usb(usb_driver: impl emb::usb::driver::Driver<'static>) {
             static STATIC_CELL: StaticCell<USBHandler> = StaticCell::new();
             STATIC_CELL.init(USBHandler::new())
         };
-        let mut usb_builder = emb::usb::Builder::new(usb_driver, usb_config,
+        let mut usb_builder = emb::usb::Builder::new(board.usb_driver, usb_config,
             config_descriptor_buf, bos_descriptor_buf, msos_descriptor_buf, control_buf);
         usb_builder.handler(usb_handler);
         usb_builder
@@ -364,6 +365,22 @@ impl emb::usb::Handler for USBHandler {
         info!("usb::Handler.configured(configured: {})", configured);
         self.configured.store(configured, atomic::Ordering::Relaxed);
     }
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use {defmt_rtt as _, panic_probe as _};
+use embassy_rp as rp;
+
+rp::bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
+});
+
+fn init_board() -> Board<impl emb::usb::driver::Driver<'static>> {
+    let p = rp::init(Default::default());
+    let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
+    Board { usb_driver }
 }
 {%- when "USB Device HID Keyboard and Mouse" -%}
 //! USB Device HID Keyboard and Mouse example using Embassy and async/await.
