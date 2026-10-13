@@ -395,44 +395,26 @@ mod emb {
 }
 use embedded_hal_1 as hal;
 use embedded_hal_async as hal_async;
-
+use embedded_hal_1::digital::InputPin as _;
+use embedded_hal_async::digital::Wait as _;
 use core::sync::atomic;
 use defmt::{info, warn};
 use static_cell::StaticCell;
 use usbd_hid::descriptor::SerializedDescriptor as _;
-use {defmt_rtt as _, panic_probe as _};
 
-use embassy_rp as rp;
-
-rp::bind_interrupts!(struct Irqs {
-    USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
-});
+struct Board<UsbDriver, InputPin> {
+    usb_driver: UsbDriver,
+    pin_button_a: InputPin,
+    pin_button_b: InputPin,
+    pin_button_left: InputPin,
+    pin_button_up: InputPin,
+    pin_button_down: InputPin,
+    pin_button_right: InputPin,
+}
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
-    let (usb_driver, pin_button_a, pin_button_b, pin_button_left, pin_button_up, pin_button_down, pin_button_right) = {
-        let p = rp::init(Default::default());
-        let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
-        let pin_button_a = rp::gpio::Input::new(p.PIN_16, rp::gpio::Pull::Up);
-        let pin_button_b = rp::gpio::Input::new(p.PIN_17, rp::gpio::Pull::Up);
-        let pin_button_left = rp::gpio::Input::new(p.PIN_18, rp::gpio::Pull::Up);
-        let pin_button_up = rp::gpio::Input::new(p.PIN_19, rp::gpio::Pull::Up);
-        let pin_button_down = rp::gpio::Input::new(p.PIN_20, rp::gpio::Pull::Up);
-        let pin_button_right = rp::gpio::Input::new(p.PIN_21, rp::gpio::Pull::Up);
-        (usb_driver, pin_button_a, pin_button_b, pin_button_left, pin_button_up, pin_button_down, pin_button_right)
-    };
-    let fut_task_usb = task_usb(usb_driver, pin_button_a, pin_button_b, pin_button_left, pin_button_up, pin_button_down, pin_button_right);
-    fut_task_usb.await;
-}
-
-async fn task_usb<InputPin>(usb_driver: impl emb::usb::driver::Driver<'static>,
-    mut pin_button_a: InputPin, mut pin_button_b: InputPin,
-    mut pin_button_left: InputPin, mut pin_button_up: InputPin,
-    mut pin_button_down: InputPin, mut pin_button_right: InputPin,
-)
-where
-    InputPin: hal::digital::InputPin + hal_async::digital::Wait,
-{
+    let mut board = init_board();
     info!("Starting USB task");
     let mut usb_builder = {
         const VID: u16 = 0xc0de;
@@ -443,7 +425,7 @@ where
         const CONTROL_BUF_SIZE: usize = 64;
         let mut usb_config = emb::usb::Config::new(VID, PID);
         usb_config.manufacturer = Some("Embassy");
-        usb_config.product = Some("{{project-name}}");
+        usb_config.product = Some("hoge");
         usb_config.serial_number = Some("12345678");
         usb_config.max_power = 100;
         usb_config.max_packet_size_0 = CONTROL_BUF_SIZE as u8;
@@ -467,7 +449,7 @@ where
             static STATIC_CELL: StaticCell<USBHandler> = StaticCell::new();
             STATIC_CELL.init(USBHandler::new())
         };
-        let mut usb_builder = emb::usb::Builder::new(usb_driver, usb_config,
+        let mut usb_builder = emb::usb::Builder::new(board.usb_driver, usb_config,
             config_descriptor_buf, bos_descriptor_buf, msos_descriptor_buf, control_buf);
         usb_builder.handler(usb_handler);
         usb_builder
@@ -508,18 +490,18 @@ where
         loop {
             hid_writer_keyboard.ready().await;
             let _= emb::futures::select::select_array([
-                pin_button_left.wait_for_any_edge(),
-                pin_button_up.wait_for_any_edge(),
-                pin_button_down.wait_for_any_edge(),
-                pin_button_right.wait_for_any_edge(),
+                board.pin_button_left.wait_for_any_edge(),
+                board.pin_button_up.wait_for_any_edge(),
+                board.pin_button_down.wait_for_any_edge(),
+                board.pin_button_right.wait_for_any_edge(),
             ]).await;
             emb::time::Timer::after_millis(30).await; // skip the bounding period
             let mut n_keycodes = 0;
             let mut keycodes = [0u8; 6];
-            if pin_button_left.is_low().unwrap() { keycodes[n_keycodes] = 0x50; n_keycodes += 1; }
-            if pin_button_up.is_low().unwrap() { keycodes[n_keycodes] = 0x52; n_keycodes += 1; }
-            if pin_button_down.is_low().unwrap() { keycodes[n_keycodes] = 0x51; n_keycodes += 1; }
-            if pin_button_right.is_low().unwrap() { keycodes[n_keycodes] = 0x4f; /* n_keycodes += 1; */ }
+            if board.pin_button_left.is_low().unwrap() { keycodes[n_keycodes] = 0x50; n_keycodes += 1; }
+            if board.pin_button_up.is_low().unwrap() { keycodes[n_keycodes] = 0x52; n_keycodes += 1; }
+            if board.pin_button_down.is_low().unwrap() { keycodes[n_keycodes] = 0x51; n_keycodes += 1; }
+            if board.pin_button_right.is_low().unwrap() { keycodes[n_keycodes] = 0x4f; /* n_keycodes += 1; */ }
             let keyboard_report = usbd_hid::descriptor::KeyboardReport {
                 modifier: 0,
                 reserved: 0,
@@ -539,9 +521,9 @@ where
             let mouse_report = usbd_hid::descriptor::MouseReport {
                 buttons: 0,
                 x: 0,
-                y: if pin_button_a.is_low().unwrap() {
+                y: if board.pin_button_a.is_low().unwrap() {
                     -20
-                } else if pin_button_b.is_low().unwrap() {
+                } else if board.pin_button_b.is_low().unwrap() {
                     20
                 } else {
                     0
@@ -655,6 +637,32 @@ impl emb::usb::class::hid::RequestHandler for HidRequestHandler {
         info!("hid::RequestHandler.set_idle_ms(id: {:?}, dur: {:?})", id, dur);
     }
 }
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+rp::bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => rp::usb::InterruptHandler<rp::peripherals::USB>;
+});
+
+fn init_board() -> Board<impl emb::usb::driver::Driver<'static>, impl hal::digital::InputPin + hal_async::digital::Wait> {
+    let p = rp::init(Default::default());
+    let usb_driver = rp::usb::Driver::new(p.USB, Irqs);
+    let pin_button_a = rp::gpio::Input::new(p.PIN_16, rp::gpio::Pull::Up);
+    let pin_button_b = rp::gpio::Input::new(p.PIN_17, rp::gpio::Pull::Up);
+    let pin_button_left = rp::gpio::Input::new(p.PIN_18, rp::gpio::Pull::Up);
+    let pin_button_up = rp::gpio::Input::new(p.PIN_19, rp::gpio::Pull::Up);
+    let pin_button_down = rp::gpio::Input::new(p.PIN_20, rp::gpio::Pull::Up);
+    let pin_button_right = rp::gpio::Input::new(p.PIN_21, rp::gpio::Pull::Up);
+    Board {
+        usb_driver,
+        pin_button_a, pin_button_b,
+        pin_button_left, pin_button_up, pin_button_down, pin_button_right,
+    }
+}
 {%- when "I2C SSD1306" -%}
 //! I2C SSD1306 example using Embassy and async/await.
 //!
@@ -662,8 +670,8 @@ impl emb::usb::class::hid::RequestHandler for HidRequestHandler {
 //!
 //! | Raspberry Pi Pico | SSD1306 |
 //! |-------------------|---------|
-//! | GPIO16            | SDA     |
-//! | GPIO17            | SCL     |
+//! | GPIO8             | SDA     |
+//! | GPIO9             | SCL     |
 #![no_std]
 #![no_main]
 
@@ -674,84 +682,58 @@ mod emb {
     pub use embassy_time as time;
 }
 use embedded_hal_async as hal_async;
-
 use core::fmt::Write as _;
 use defmt::info;
 use heapless::String;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
-
 use embedded_graphics as eg;
 use embedded_graphics::mono_font::ascii as eg_fonts;
 type ColorType = eg::pixelcolor::BinaryColor;
 
-use embassy_rp as rp;
-
 pub type AsyncMutexNoop<T> = emb::sync::mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
 
-rp::bind_interrupts!(struct Irqs {
-    I2C0_IRQ => rp::i2c::InterruptHandler<rp::peripherals::I2C0>;
-});
+struct Board<I2C> {
+    i2c_ssd1306: I2C,
+}
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
-    let (i2c_ssd1306,) = {
-        let p = rp::init(Default::default());
-        let mutex_i2c0 = {
-            let pin_sda = p.PIN_16;
-            let pin_scl = p.PIN_17;
-            let mut config = rp::i2c::Config::default();
-            config.frequency = 400_000;
-            type I2c0 = rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>;
-            static STATIC_CELL: StaticCell<AsyncMutexNoop<I2c0>> = StaticCell::new();
-            STATIC_CELL.init(AsyncMutexNoop::new(I2c0::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
-        };
-        let i2c_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
-        (i2c_ssd1306,)
-    };
-    let fut_task_display = task_display(i2c_ssd1306);
-    fut_task_display.await;
-}
-
-async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
-    info!("Starting display task");
+    use eg::prelude::*;
     use ssd1306::prelude::*;
-    use embedded_graphics::prelude::*;
     enum Direction { Inc, Dec }
     impl Direction {
         fn step(&self, value: &mut i32) {
             *value += match self { Self::Inc => 1, Self::Dec => -1 };
         }
     }
-    let mut target = {
-        let interface = ssd1306::I2CDisplayInterface::new(i2c_ssd1306);
+    let board = init_board();
+    info!("Starting display task");
+    let mut display = {
+        let interface = ssd1306::I2CDisplayInterface::new(board.i2c_ssd1306);
         let size = ssd1306::size::DisplaySize128x64;
         let rotation = ssd1306::rotation::DisplayRotation::Rotate0;
         ssd1306::Ssd1306Async::new(interface, size, rotation).into_buffered_graphics_mode()
     };
-    target.init().await.unwrap();
+    display.init().await.unwrap();
     let character_style = eg::mono_font::MonoTextStyleBuilder::new()
         .font(&eg_fonts::FONT_10X20).text_color(ColorType::On).build();
     let text_style = eg::text::TextStyleBuilder::new().baseline(eg::text::Baseline::Top).build();
     let mut sbuf: String<16> = String::new();
     let style_dot = eg::primitives::PrimitiveStyleBuilder::new().fill_color(ColorType::On).build();
-    let size_display = {
-        let (width, height) = target.dimensions();
-        Size::new(width as u32, height as u32)
-    };
+    let size_display = display.bounding_box().size;
     let size_dot = Size::new(8, 8);
     let mut i_frame = 0;
     let (mut x, mut y) = (size_display.width as i32 / 2, size_display.height as i32 / 2);
     let (mut x_dir, mut y_dir) = (Direction::Inc, Direction::Inc);
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(10));
     loop {
-        target.clear(ColorType::Off).unwrap();
+        display.clear(ColorType::Off).unwrap();
         sbuf.clear();
         write!(sbuf, "Frame: {}", i_frame).unwrap();
         eg::text::Text::with_text_style(sbuf.as_str(), Point::new(0, 0), character_style, text_style)
-            .draw(&mut target).unwrap();
+            .draw(&mut display).unwrap();
         eg::primitives::Rectangle::new(Point::new(x, y), size_dot)
-            .into_styled(style_dot).draw(&mut target).unwrap();
+            .into_styled(style_dot).draw(&mut display).unwrap();
         i_frame += 1;
         if x >= (size_display.width - size_dot.width) as i32 {
             x_dir = Direction::Dec;
@@ -765,9 +747,34 @@ async fn task_display(i2c_ssd1306: impl hal_async::i2c::I2c) {
         }
         x_dir.step(&mut x);
         y_dir.step(&mut y);
-        target.flush().await.unwrap();
+        display.flush().await.unwrap();
         ticker.next().await;
     }
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+rp::bind_interrupts!(struct Irqs {
+    I2C0_IRQ => rp::i2c::InterruptHandler<rp::peripherals::I2C0>;
+});
+
+fn init_board() -> Board<impl hal_async::i2c::I2c> {
+    let p = rp::init(Default::default());
+    let mutex_i2c0 = {
+        let pin_sda = p.PIN_8;
+        let pin_scl = p.PIN_9;
+        let mut config = rp::i2c::Config::default();
+        config.frequency = 400_000;
+        type I2c0 = rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>;
+        static STATIC_CELL: StaticCell<AsyncMutexNoop<I2c0>> = StaticCell::new();
+        STATIC_CELL.init(AsyncMutexNoop::new(I2c0::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
+    };
+    let i2c_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
+    Board { i2c_ssd1306 }
 }
 {%- when "I2C SSD1306 + DS3231" -%}
 //! I2C SSD1306 example using Embassy and async/await.
