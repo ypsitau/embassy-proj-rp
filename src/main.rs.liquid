@@ -795,58 +795,35 @@ mod emb {
     pub use embassy_time as time;
 }
 use embedded_hal_async as hal_async;
-
 use core::fmt::Write as _;
 use defmt::info;
 use heapless::String;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
-
 use embedded_graphics as eg;
 use embedded_graphics::mono_font::ascii as eg_fonts;
+
 type ColorType = eg::pixelcolor::BinaryColor;
-
-use embassy_rp as rp;
-
 type AsyncMutexNoop<T> = emb::sync::mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
 
-rp::bind_interrupts!(struct Irqs {
-    I2C0_IRQ => rp::i2c::InterruptHandler<rp::peripherals::I2C0>;
-});
+struct Board<I2C> {
+    i2c_dev_ssd1306: I2C,
+    i2c_dev_ds3231: I2C,
+}
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
-    let (i2c_ssd1306, i2c_ds3231) = {
-        let p = rp::init(Default::default());
-        let mutex_i2c0 = {
-            let pin_sda = p.PIN_16;
-            let pin_scl = p.PIN_17;
-            let mut config = rp::i2c::Config::default();
-            config.frequency = 400_000;
-            type I2c0 = rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>;
-            static STATIC_CELL: StaticCell<AsyncMutexNoop<I2c0>> = StaticCell::new();
-            STATIC_CELL.init(AsyncMutexNoop::new(I2c0::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
-        };
-        let i2c_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
-        let i2c_ds3231 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
-        (i2c_ssd1306, i2c_ds3231)
-    };
-    let fut_task_clock = task_clock(i2c_ssd1306, i2c_ds3231);
-    fut_task_clock.await;
-}
-
-async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_async::i2c::I2c) {
-    info!("Starting clock task");
     use ssd1306::prelude::*;
-    use embedded_graphics::prelude::*;
-    let mut target = {
-        let interface = ssd1306::I2CDisplayInterface::new(i2c_ssd1306);
+    use eg::prelude::*;
+    let board = init_board();
+    info!("Starting clock task");
+    let mut display = {
+        let interface = ssd1306::I2CDisplayInterface::new(board.i2c_dev_ssd1306);
         let size = ssd1306::size::DisplaySize128x64;
         let rotation = ssd1306::rotation::DisplayRotation::Rotate0;
         ssd1306::Ssd1306Async::new(interface, size, rotation).into_buffered_graphics_mode()
     };
-    target.init().await.unwrap();
-    let mut ds3231 = Ds3231::new(i2c_ds3231);
+    display.init().await.unwrap();
+    let mut ds3231 = Ds3231::new(board.i2c_dev_ds3231);
     let character_style = eg::mono_font::MonoTextStyleBuilder::new()
         .font(&eg_fonts::FONT_10X20).text_color(ColorType::On).build();
     let text_style = eg::text::TextStyleBuilder::new()
@@ -854,7 +831,7 @@ async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_
     let mut sbuf = String::<32>::new();
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(500));
     loop {
-        target.clear(ColorType::Off).unwrap();
+        display.clear(ColorType::Off).unwrap();
         sbuf.clear();
         if let Ok(now) = ds3231.read().await {
             write!(sbuf, "{:02}:{:02}:{:02}",
@@ -862,9 +839,9 @@ async fn task_clock(i2c_ssd1306: impl hal_async::i2c::I2c, i2c_ds3231: impl hal_
         } else {
             write!(sbuf, "--:--:--").unwrap();
         }
-        eg::text::Text::with_text_style(sbuf.as_str(), target.bounding_box().center(),
-            character_style, text_style).draw(&mut target).unwrap();
-        target.flush().await.unwrap();
+        eg::text::Text::with_text_style(sbuf.as_str(), display.bounding_box().center(),
+            character_style, text_style).draw(&mut display).unwrap();
+        display.flush().await.unwrap();
         ticker.next().await;
     }
 }
@@ -892,6 +869,32 @@ impl<I2C: hal_async::i2c::I2c> Ds3231<I2C> {
             time::Time::from_hms(hour, minute, second).unwrap());
         Ok(dt)
     }
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+rp::bind_interrupts!(struct Irqs {
+    I2C0_IRQ => rp::i2c::InterruptHandler<rp::peripherals::I2C0>;
+});
+
+fn init_board() -> Board<impl hal_async::i2c::I2c> {
+    let p = rp::init(Default::default());
+    let mutex_i2c0 = {
+        let pin_sda = p.PIN_8;
+        let pin_scl = p.PIN_9;
+        let mut config = rp::i2c::Config::default();
+        config.frequency = 400_000;
+        type I2c0 = rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>;
+        static STATIC_CELL: StaticCell<AsyncMutexNoop<I2c0>> = StaticCell::new();
+        STATIC_CELL.init(AsyncMutexNoop::new(I2c0::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
+    };
+    let i2c_dev_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
+    let i2c_dev_ds3231 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
+    Board { i2c_dev_ssd1306, i2c_dev_ds3231 }
 }
 {%- when "Wi-Fi Scan" -%}
 #![no_std]
