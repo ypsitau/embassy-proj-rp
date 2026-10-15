@@ -670,8 +670,8 @@ fn init_board() -> Board<impl emb::usb::driver::Driver<'static>, impl hal::digit
 //!
 //! | Raspberry Pi Pico | SSD1306 |
 //! |-------------------|---------|
-//! | GPIO8             | SDA     |
-//! | GPIO9             | SCL     |
+//! | GPIO14            | SDA     |
+//! | GPIO15            | SCL     |
 #![no_std]
 #![no_main]
 
@@ -764,16 +764,16 @@ rp::bind_interrupts!(struct Irqs {
 
 fn init_board() -> Board<impl hal_async::i2c::I2c> {
     let p = rp::init(Default::default());
-    let mutex_i2c0 = {
-        let pin_sda = p.PIN_8;
-        let pin_scl = p.PIN_9;
+    let mutex_i2c1 = {
+        let pin_sda = p.PIN_14;
+        let pin_scl = p.PIN_15;
         let mut config = rp::i2c::Config::default();
         config.frequency = 400_000;
         type I2c0 = rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>;
         static STATIC_CELL: StaticCell<AsyncMutexNoop<I2c0>> = StaticCell::new();
         STATIC_CELL.init(AsyncMutexNoop::new(I2c0::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
     };
-    let i2c_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
+    let i2c_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c1);
     Board { i2c_ssd1306 }
 }
 {%- when "I2C SSD1306 + DS3231" -%}
@@ -783,8 +783,8 @@ fn init_board() -> Board<impl hal_async::i2c::I2c> {
 //!
 //! | Raspberry Pi Pico | SSD1306 |
 //! |-------------------|---------|
-//! | GPIO16            | SDA     |
-//! | GPIO17            | SCL     |
+//! | GPIO14            | SDA     |
+//! | GPIO15            | SCL     |
 #![no_std]
 #![no_main]
 
@@ -883,17 +883,17 @@ rp::bind_interrupts!(struct Irqs {
 
 fn init_board() -> Board<impl hal_async::i2c::I2c> {
     let p = rp::init(Default::default());
-    let mutex_i2c0 = {
-        let pin_sda = p.PIN_8;
-        let pin_scl = p.PIN_9;
+    let mutex_i2c1 = {
+        let pin_sda = p.PIN_14;
+        let pin_scl = p.PIN_15;
         let mut config = rp::i2c::Config::default();
         config.frequency = 400_000;
         type I2c0 = rp::i2c::I2c<'static, rp::peripherals::I2C0, rp::i2c::Async>;
         static STATIC_CELL: StaticCell<AsyncMutexNoop<I2c0>> = StaticCell::new();
         STATIC_CELL.init(AsyncMutexNoop::new(I2c0::new_async(p.I2C0, pin_scl, pin_sda, Irqs, config)))
     };
-    let i2c_dev_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
-    let i2c_dev_ds3231 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c0);
+    let i2c_dev_ssd1306 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c1);
+    let i2c_dev_ds3231 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c1);
     Board { i2c_dev_ssd1306, i2c_dev_ds3231 }
 }
 {%- when "Wi-Fi Scan" -%}
