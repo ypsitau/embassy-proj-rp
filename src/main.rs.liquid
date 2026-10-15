@@ -1391,7 +1391,7 @@ struct Board<W> {
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
-    const N_LEDS: usize = 4;
+    const N_LEDS: usize = 1;
     let mut board = init_board::<N_LEDS>();
     info!("Starting task_blinky");
     let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(10));
