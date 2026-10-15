@@ -101,16 +101,12 @@ fn init_board() -> Board<impl hal::digital::InputPin + hal_async::digital::Wait,
 #![no_std]
 #![no_main]
 
-mod pwm_util;
-
 mod emb {
     pub use embassy_executor as executor;
     pub use embassy_time as time;
 }
 use embedded_hal_1 as hal;
 use embedded_hal_1::pwm::SetDutyCycle as _; // for set_duty_cycle_fraction()
-use defmt::info;
-use fixed::traits::ToFixed as _;            // for to_fixed()
 
 struct Board<SetDutyCycle> {
     pwm_led: SetDutyCycle,
@@ -136,7 +132,11 @@ async fn main(_spawner: emb::executor::Spawner) {
 //-----------------------------------------------------------------------------
 // board-specific implementation
 //-----------------------------------------------------------------------------
+mod pwm_util;
+
+use fixed::traits::ToFixed as _;            // for to_fixed()
 use embassy_rp as rp;
+use defmt::info;
 use {defmt_rtt as _, panic_probe as _};
 
 fn init_board() -> Board<impl hal::pwm::SetDutyCycle> {
@@ -177,8 +177,8 @@ struct Board<Uart> {
 async fn main(_spawner: emb::executor::Spawner) {
     let mut board = init_board();
     info!("Starting echo task");
-    const BUFSIZE: usize = 16;
     let buf = {
+        const BUFSIZE: usize = 16;
         static STATIC_CELL: StaticCell<[u8; BUFSIZE]> = StaticCell::new();
         STATIC_CELL.init([0u8; BUFSIZE])
     };
@@ -1368,5 +1368,85 @@ async fn init_board(spawner: emb::executor::Spawner)
     }
     let rng = rp::clocks::RoscRng;
     Board { net_driver, cyw43_control, rng, }
+}
+{%- when "PIO WS2812" -%}
+//! WS2812 LED control example using Embassy and async/await.
+#![no_std]
+#![no_main]
+
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_time as time;
+}
+use defmt::info;
+use smart_leds as leds;
+
+trait Ws2812<const N_LEDS: usize> {
+    async fn write(&mut self, data: &[leds::RGB8; N_LEDS]);
+}
+
+struct Board<W> {
+    ws2812: W,
+}
+
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
+    const N_LEDS: usize = 4;
+    let mut board = init_board::<N_LEDS>();
+    info!("Starting task_blinky");
+    let mut ticker = emb::time::Ticker::every(emb::time::Duration::from_millis(10));
+    let mut rgb8_array = [leds::RGB8::default(); N_LEDS];
+    loop {
+        for j in 0..(256 * 5) {
+            info!("New Colors:");
+            for i in 0..N_LEDS {
+                rgb8_array[i] = wheel(((i * 256) / N_LEDS + j) & 255);
+                info!("R: {:02x} G: {:02x} B: {:02x}", rgb8_array[i].r, rgb8_array[i].g, rgb8_array[i].b);
+            }
+            board.ws2812.write(&rgb8_array).await;
+            ticker.next().await;
+        }
+    }
+}
+
+fn wheel(pos: usize) -> leds::RGB8 {
+    let pos: u8 = pos as u8;
+    if pos < 85 {
+        leds::RGB8::new(255 - pos * 3, 0, pos * 3)
+    } else if pos < 170 {
+        let pos = pos - 85;
+        leds::RGB8::new(0, pos * 3, 255 - pos * 3)
+    } else {
+        let pos = pos - 170;
+        leds::RGB8::new(pos * 3, 255 - pos * 3, 0)
+    }
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+rp::bind_interrupts!(struct Irqs {
+    PIO0_IRQ_0 => rp::pio::InterruptHandler<rp::peripherals::PIO0>;
+    DMA_IRQ_0 => rp::dma::InterruptHandler<rp::peripherals::DMA_CH0>;
+});
+
+impl<const N_LEDS: usize> Ws2812<N_LEDS> for rp::pio_programs::ws2812::PioWs2812<'static, rp::peripherals::PIO0, 0, N_LEDS, rp::pio_programs::ws2812::Grb> {
+    async fn write(&mut self, data: &[leds::RGB8; N_LEDS]) {
+        self.write(data).await;
+    }
+}
+
+fn init_board<const N_LEDS: usize>() -> Board<impl Ws2812<N_LEDS>> {
+    let p = rp::init(Default::default());
+    let rp::pio::Pio{common: mut pio0_common, sm0: pio0_sm0, ..} = rp::pio::Pio::new(p.PIO0, Irqs);
+    let ws2812 = {
+        let pin = p.PIN_16;
+        let program = rp::pio_programs::ws2812::PioWs2812Program::new(&mut pio0_common);
+        rp::pio_programs::ws2812::PioWs2812::new(&mut pio0_common, pio0_sm0, p.DMA_CH0, Irqs, pin, &program)
+    };
+    Board { ws2812 }
 }
 {%- endcase %}

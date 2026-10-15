@@ -69,6 +69,9 @@ reqwless = { git = "https://github.com/drogue-iot/reqwless",
 serde = { version = "1.0.229", default-features = false, features = ["derive"] }
 serde-json-core = { version = "0.5.1" }
 
+{% when "PIO WS2812" -%}
+smart-leds = { version = "0.4.0" }
+
 {% endcase -%}
 
 [target.'cfg( target_arch = "arm" )'.dependencies]

@@ -24,7 +24,8 @@ choices = [
     "I2C SSD1306 + DS3231",
     "Wi-Fi Scan",
     "Wi-Fi TCP Server",
-    "Wi-Fi HTTP Client"
+    "Wi-Fi HTTP Client",
+    "PIO WS2812",
 ]
 default = "Blinky"
 type = "string"
