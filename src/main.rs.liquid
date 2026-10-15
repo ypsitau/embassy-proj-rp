@@ -894,6 +894,139 @@ fn init_board() -> Board<impl hal_async::i2c::I2c> {
     let i2c_dev_ds3231 = emb::shared_bus::asynch::i2c::I2cDevice::new(mutex_i2c1);
     Board { i2c_dev_ssd1306, i2c_dev_ds3231 }
 }
+{%- when "SPI ST7789" -%}
+//! Blinky example using Embassy and async/await.
+#![no_std]
+#![no_main]
+
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_sync as sync;
+    pub use embassy_time as time;
+    pub use embassy_embedded_hal as hal;
+}
+use embedded_hal_1 as hal;
+use mipidsi::models::ST7789 as DisplayModel;
+use static_cell::StaticCell;
+use core::cell::RefCell;
+use embedded_graphics as eg;
+use embedded_graphics::mono_font::iso_8859_1 as eg_fonts;
+
+pub type BlockingMutexNoop<T> =
+    emb::sync::blocking_mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
+
+pub struct Board<Display, OutputPin> {
+    pub display: Display,
+    pub pin_display_bl: OutputPin,
+}
+
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
+    use mipidsi::options as opts;
+    let mut board = init_board(DisplayModel, (240, 320),
+        opts::Orientation::new().rotate(opts::Rotation::Deg90),
+        opts::ColorOrder::Rgb, opts::ColorInversion::Inverted);
+    show(&mut board.display).unwrap();
+    core::future::pending::<()>().await;
+}
+
+pub fn show<DrawTarget, ColorType>(target: &mut DrawTarget) -> Result<(), DrawTarget::Error>
+where
+    DrawTarget: eg::draw_target::DrawTarget<Color = ColorType>,
+    ColorType: eg::pixelcolor::RgbColor,
+{
+    use eg::prelude::*;
+    const SIZE_OBJ: i32 = 64;
+    let mut offset = Point::new(10, 14);
+
+    target.clear(ColorType::BLACK)?;
+
+    // Draw a 3px wide outline around the target.
+    let style = eg::primitives::PrimitiveStyleBuilder::new()
+        .stroke_color(ColorType::WHITE).stroke_width(3)
+        .stroke_alignment(eg::primitives::StrokeAlignment::Inside).build();
+    target.bounding_box().into_styled(style).draw(target)?;
+
+    // Draw a triangle.
+    let style = eg::primitives::PrimitiveStyleBuilder::new()
+        .stroke_color(ColorType::WHITE).stroke_width(1).build();
+    eg::primitives::Triangle::new(Point::new(0, SIZE_OBJ), Point::new(SIZE_OBJ, SIZE_OBJ),
+        Point::new(SIZE_OBJ / 2, 0)).translate_mut(offset).into_styled(style).draw(target)?;
+    offset.x += SIZE_OBJ + 4;
+
+    // Draw a filled square
+    let style = eg::primitives::PrimitiveStyleBuilder::new()
+        .fill_color(ColorType::WHITE).build();
+    eg::primitives::Rectangle::new(Point::new(0, 0), Size::new(SIZE_OBJ as u32, SIZE_OBJ as u32))
+        .translate_mut(offset).into_styled(style).draw(target)?;
+    offset.x += SIZE_OBJ + 4;
+
+    // Draw a circle with a 3px wide stroke.
+    let style = eg::primitives::PrimitiveStyleBuilder::new()
+        .stroke_color(ColorType::WHITE).stroke_width(3).build();
+    eg::primitives::Circle::new(Point::new(0, 0), SIZE_OBJ as u32)
+        .translate_mut(offset).into_styled(style).draw(target)?;
+
+    // Draw centered text.
+    let text = "embedded-graphics";
+    let position = target.bounding_box().center() + Point::new(0, 15);
+    let character_style = eg::mono_font::MonoTextStyleBuilder::new()
+        .font(&eg_fonts::FONT_10X20).text_color(ColorType::WHITE).build();
+    let text_style = eg::text::TextStyleBuilder::new()
+        .alignment(eg::text::Alignment::Center).build();
+    eg::text::Text::with_text_style(text, position, character_style, text_style).draw(target)?;
+
+    Ok(())
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+pub fn init_board<DisplayModel>(display_model: DisplayModel, size: (u16, u16), orientation: mipidsi::options::Orientation,
+    color_order: mipidsi::options::ColorOrder, color_inversion: mipidsi::options::ColorInversion)
+    -> Board<
+        impl eg::draw_target::DrawTarget<Color = eg::pixelcolor::Rgb565, Error: core::fmt::Debug>,
+        impl hal::digital::OutputPin,
+    >
+where
+    DisplayModel: mipidsi::models::Model<ColorFormat = eg::pixelcolor::Rgb565>,
+{
+    let p = rp::init(Default::default());
+    let mutex_spi0 = {
+        type Spi0 = rp::spi::Spi<'static, rp::peripherals::SPI0, rp::spi::Blocking>;
+        let (pin_clk, pin_mosi) = (p.PIN_6, p.PIN_7);
+        static STATIC_CELL: StaticCell<BlockingMutexNoop<RefCell<Spi0>>> = StaticCell::new();
+        STATIC_CELL.init(BlockingMutexNoop::new(RefCell::new(
+            Spi0::new_blocking_txonly(p.SPI0, pin_clk, pin_mosi, Default::default()))))
+    };
+    let pin_display_reset = rp::gpio::Output::new(p.PIN_10, rp::gpio::Level::Low);
+    let pin_display_dc = rp::gpio::Output::new(p.PIN_11, rp::gpio::Level::Low);
+    let pin_display_cs = rp::gpio::Output::new(p.PIN_12, rp::gpio::Level::High);
+    let pin_display_bl = rp::gpio::Output::new(p.PIN_13, rp::gpio::Level::High);
+    let mipidsi_spi_interface = {
+        let spi_dev = {
+            let mut config = rp::spi::Config::default();
+            config.frequency = 64_000_000;
+            config.phase = rp::spi::Phase::CaptureOnSecondTransition;
+            config.polarity = rp::spi::Polarity::IdleHigh;
+            emb::hal::shared_bus::blocking::spi::SpiDeviceWithConfig::new(mutex_spi0, pin_display_cs, config)
+        };
+        let spi_buf = {
+            const SPI_BUF_SIZE: usize = 320;
+            static STATIC_CELL: StaticCell<[u8; SPI_BUF_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; SPI_BUF_SIZE])
+        };
+        mipidsi::interface::SpiInterface::new(spi_dev, pin_display_dc, spi_buf)
+    };
+    let display = mipidsi::Builder::new(display_model, mipidsi_spi_interface)
+        .display_size(size.0, size.1).reset_pin(pin_display_reset)
+        .orientation(orientation).color_order(color_order).invert_colors(color_inversion)
+        .init(&mut emb::time::Delay).unwrap();
+    Board { display, pin_display_bl, }
+}
 {%- when "Wi-Fi Scan" -%}
 #![no_std]
 #![no_main]

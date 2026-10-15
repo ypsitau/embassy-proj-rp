@@ -42,13 +42,17 @@ embassy-usb-driver = { version = "0.2.2", features = ["defmt"] }
 usbd-hid = { version = "0.10.2" }
 
 {% when "I2C SSD1306" -%}
-ssd1306 = { version = "0.10.0", features = ["async"] }
 embedded-graphics = { version = "0.8.2" }
+ssd1306 = { version = "0.10.0", features = ["async"] }
 
 {% when "I2C SSD1306 + DS3231" -%}
-ssd1306 = { version = "0.10.0", features = ["async"] }
 embedded-graphics = { version = "0.8.2" }
 time = { version = "0.3.55", default-features = false } # no_std
+ssd1306 = { version = "0.10.0", features = ["async"] }
+
+{% when "SPI ST7789" -%}
+embedded-graphics = { version = "0.8.2" }
+mipidsi = { version = "0.10.0" }
 
 {% when "Wi-Fi Scan" -%}
 cyw43 = { version = "0.7.0", features = ["defmt"] }
