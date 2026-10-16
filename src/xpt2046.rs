@@ -11,12 +11,6 @@ pub struct Calibration {
     pub yraw_bottom: i32,
 }
 
-impl Calibration {
-    pub fn new(xraw_right: i32, xraw_left: i32, yraw_top: i32, yraw_bottom: i32) -> Self {
-        Self { xraw_right, xraw_left, yraw_top, yraw_bottom }
-    }
-}
-
 impl Default for Calibration {
     fn default() -> Self {
         Self {
