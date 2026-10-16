@@ -956,14 +956,14 @@ where
 
     // Draw a filled square
     let style = eg::primitives::PrimitiveStyleBuilder::new()
-        .fill_color(ColorType::YELLOW).build();
+        .fill_color(ColorType::GREEN).build();
     eg::primitives::Rectangle::new(Point::new(0, 0), Size::new(SIZE_OBJ as u32, SIZE_OBJ as u32))
         .translate_mut(offset).into_styled(style).draw(target)?;
     offset.x += SIZE_OBJ + 4;
 
     // Draw a circle with a 3px wide stroke.
     let style = eg::primitives::PrimitiveStyleBuilder::new()
-        .stroke_color(ColorType::GREEN).stroke_width(3).build();
+        .stroke_color(ColorType::BLUE).stroke_width(3).build();
     eg::primitives::Circle::new(Point::new(0, 0), SIZE_OBJ as u32)
         .translate_mut(offset).into_styled(style).draw(target)?;
 
