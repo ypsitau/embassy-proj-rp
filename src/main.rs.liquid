@@ -995,24 +995,24 @@ where
     DisplayModel: mipidsi::models::Model<ColorFormat = eg::pixelcolor::Rgb565>,
 {
     let p = rp::init(Default::default());
-    let mutex_spi0 = {
-        type Spi0 = rp::spi::Spi<'static, rp::peripherals::SPI0, rp::spi::Blocking>;
-        let (pin_clk, pin_mosi) = (p.PIN_6, p.PIN_7);
-        static STATIC_CELL: StaticCell<BlockingMutexNoop<RefCell<Spi0>>> = StaticCell::new();
+    let (pin_spi1_clk, pin_spi1_mosi) = (p.PIN_10, p.PIN_11);
+    let mutex_spi1 = {
+        type Spi = rp::spi::Spi<'static, rp::peripherals::SPI1, rp::spi::Blocking>;
+        static STATIC_CELL: StaticCell<BlockingMutexNoop<RefCell<Spi>>> = StaticCell::new();
         STATIC_CELL.init(BlockingMutexNoop::new(RefCell::new(
-            Spi0::new_blocking_txonly(p.SPI0, pin_clk, pin_mosi, Default::default()))))
+            Spi::new_blocking_txonly(p.SPI1, pin_spi1_clk, pin_spi1_mosi, Default::default()))))
     };
-    let pin_display_reset = rp::gpio::Output::new(p.PIN_10, rp::gpio::Level::Low);
-    let pin_display_dc = rp::gpio::Output::new(p.PIN_11, rp::gpio::Level::Low);
-    let pin_display_cs = rp::gpio::Output::new(p.PIN_12, rp::gpio::Level::High);
-    let pin_display_bl = rp::gpio::Output::new(p.PIN_13, rp::gpio::Level::High);
+    let pin_display_reset = rp::gpio::Output::new(p.PIN_6, rp::gpio::Level::Low);
+    let pin_display_dc = rp::gpio::Output::new(p.PIN_7, rp::gpio::Level::Low);
+    let pin_display_cs = rp::gpio::Output::new(p.PIN_8, rp::gpio::Level::High);
+    let pin_display_bl = rp::gpio::Output::new(p.PIN_9, rp::gpio::Level::High);
     let mipidsi_spi_interface = {
         let spi_dev = {
             let mut config = rp::spi::Config::default();
             config.frequency = 64_000_000;
             config.phase = rp::spi::Phase::CaptureOnSecondTransition;
             config.polarity = rp::spi::Polarity::IdleHigh;
-            emb::hal::shared_bus::blocking::spi::SpiDeviceWithConfig::new(mutex_spi0, pin_display_cs, config)
+            emb::hal::shared_bus::blocking::spi::SpiDeviceWithConfig::new(mutex_spi1, pin_display_cs, config)
         };
         let spi_buf = {
             const SPI_BUF_SIZE: usize = 320;
@@ -1117,12 +1117,12 @@ where
     DisplayModel: mipidsi::models::Model<ColorFormat = eg::pixelcolor::Rgb565>,
 {
     let p = rp::init(Default::default());
+    let (pin_spi1_clk, pin_spi1_mosi, pin_spi1_miso) = (p.PIN_10, p.PIN_11, p.PIN_12);
     let mutex_spi1 = {
         type Spi1 = rp::spi::Spi<'static, rp::peripherals::SPI1, rp::spi::Blocking>;
-        let (pin_clk, pin_mosi, pin_miso) = (p.PIN_10, p.PIN_11, p.PIN_12);
         static STATIC_CELL: StaticCell<BlockingMutexNoop<RefCell<Spi1>>> = StaticCell::new();
         STATIC_CELL.init(BlockingMutexNoop::new(RefCell::new(
-            Spi1::new_blocking(p.SPI1, pin_clk, pin_mosi, pin_miso, Default::default()))))
+            Spi1::new_blocking(p.SPI1, pin_spi1_clk, pin_spi1_mosi, pin_spi1_miso, Default::default()))))
     };
     let pin_touch_cs = rp::gpio::Output::new(p.PIN_4, rp::gpio::Level::High);
     let _pin_touch_irq  = rp::gpio::Input::new(p.PIN_5, rp::gpio::Pull::Up);
