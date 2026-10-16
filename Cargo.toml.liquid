@@ -47,10 +47,10 @@ ssd1306 = { version = "0.10.0", features = ["async"] }
 
 {% when "I2C SSD1306 + DS3231" -%}
 embedded-graphics = { version = "0.8.2" }
-time = { version = "0.3.55", default-features = false } # no_std
 ssd1306 = { version = "0.10.0", features = ["async"] }
+time = { version = "0.3.55", default-features = false } # no_std
 
-{% when "SPI ST7789" -%}
+{% when "SPI ST7789" or "SPI ILI9341" -%}
 embedded-graphics = { version = "0.8.2" }
 mipidsi = { version = "0.10.0" }
 
