@@ -4,6 +4,12 @@ use embedded_graphics as eg;
 use embedded_graphics::prelude::*;
 
 #[derive(Debug, Clone, Copy, defmt::Format)]
+pub enum TouchEvent {
+    Pressed((i32, i32)),
+    Released,
+}
+
+#[derive(Debug, Clone, Copy, defmt::Format)]
 pub struct Calibration {
     pub xraw_right: i32,
     pub xraw_left: i32,
@@ -58,7 +64,7 @@ impl<SpiDevice: hal::spi::SpiDevice> Builder<SpiDevice> {
 
 impl<SpiDevice: hal::spi::SpiDevice> Driver<SpiDevice> {
     pub async fn run_sampler(&mut self, mut delay: impl hal_async::delay::DelayNs,
-            sampling_delay: u32, mut on_pos_updated: impl FnMut(Option<(i32, i32)>)) {
+            sampling_delay: u32, mut on_event: impl FnMut(TouchEvent)) {
         const NUM_SAMPLES: usize = 6;
         let mut xraw_hist = heapless::HistoryBuf::<u16, NUM_SAMPLES>::new();
         let mut yraw_hist = heapless::HistoryBuf::<u16, NUM_SAMPLES>::new();
@@ -77,12 +83,12 @@ impl<SpiDevice: hal::spi::SpiDevice> Driver<SpiDevice> {
                     let xraw_avg = (xraw_sorted[idx] + xraw_sorted[idx - 1] + xraw_sorted[idx + 1]) / 3;
                     let yraw_avg = (yraw_sorted[idx] + yraw_sorted[idx - 1] + yraw_sorted[idx + 1]) / 3;
                     let (x, y) = self.calc_pos(xraw_avg, yraw_avg);
-                    on_pos_updated(Some((x, y)));
+                    on_event(TouchEvent::Pressed((x, y)));
                 }
             } else if !xraw_hist.is_empty() {
                 xraw_hist.clear();
                 yraw_hist.clear();
-                on_pos_updated(None);
+                on_event(TouchEvent::Released);
             }
             delay.delay_ms(sampling_delay).await;
         }

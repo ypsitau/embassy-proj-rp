@@ -1041,11 +1041,12 @@ mod emb {
     pub use embassy_time as time;
     pub use embassy_embedded_hal as hal;
 }
-use defmt::info;
+use core::fmt::Write as _;
 use embedded_hal_1 as hal;
 use mipidsi::models::ILI9341Rgb565 as DisplayModel;
 use static_cell::StaticCell;
 use core::cell::RefCell;
+use heapless::String;
 use embedded_graphics as eg;
 use embedded_graphics::mono_font::iso_8859_1 as eg_fonts;
 
@@ -1072,17 +1073,21 @@ async fn main(_spawner: emb::executor::Spawner) {
         .calibration(xpt2046::Calibration::default()).rotate90(true).build();
     if let Some(calibration) = xpt2046::calibrate(&mut touch, &mut board.display, &mut emb::time::Delay,
             eg::pixelcolor::Rgb565::GREEN, eg::pixelcolor::Rgb565::BLACK).await {
-        info!("touch.calibration = xpt2046::Calibration::new({}, {}, {}, {});",
-            calibration.xraw_right, calibration.xraw_left, calibration.yraw_top, calibration.yraw_bottom);
         touch.calibration = calibration;
     }
     let position = board.display.bounding_box().center();
     let character_style = eg::mono_font::MonoTextStyleBuilder::new()
-        .font(&eg_fonts::FONT_10X20).text_color(ColorType::WHITE).build();
-    let text_style = eg::text::TextStyleBuilder::new()
-        .baseline(eg::text::Baseline::Middle).alignment(eg::text::Alignment::Center).build();
-    eg::text::Text::with_text_style("Draw something!",
-        position, character_style, text_style).draw(&mut board.display).unwrap();
+        .font(&eg_fonts::FONT_9X18).text_color(ColorType::WHITE).build();
+    let text_style_builder = eg::text::TextStyleBuilder::new().alignment(eg::text::Alignment::Center);
+    eg::text::Text::with_text_style("Calibration Done. Ready to draw.",
+        position, character_style, text_style_builder.baseline(eg::text::Baseline::Bottom).build())
+        .draw(&mut board.display).unwrap();
+    let mut sbuf: String<64> = String::new();
+    let c = touch.calibration;
+    write!(sbuf, "({}. {}, {}, {})", c.xraw_right, c.xraw_left, c.yraw_top, c.yraw_bottom).unwrap();
+    eg::text::Text::with_text_style(&sbuf,
+        position, character_style, text_style_builder.baseline(eg::text::Baseline::Top).build())
+        .draw(&mut board.display).unwrap();
     let channel_pos: ChannelNoop<(i32, i32), 16> = ChannelNoop::new();
     let fut_main = async {
         let style_dot = eg::primitives::PrimitiveStyleBuilder::new()
@@ -1094,8 +1099,11 @@ async fn main(_spawner: emb::executor::Spawner) {
             ).into_styled(style_dot).draw(&mut board.display).unwrap();
         }
     };
-    let fut_touch = touch.run_sampler(emb::time::Delay, 5, |pos| {
-        if let Some(pos) = pos { channel_pos.try_send(pos).ok(); }
+    let fut_touch = touch.run_sampler(emb::time::Delay, 5, |event| {
+        match event {
+            xpt2046::TouchEvent::Pressed(pos) => { channel_pos.try_send(pos).ok(); }
+            xpt2046::TouchEvent::Released => {}
+        }
     });
     emb::futures::join::join(fut_main, fut_touch).await;
 }
