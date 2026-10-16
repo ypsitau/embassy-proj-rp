@@ -895,7 +895,7 @@ fn init_board() -> Board<impl hal_async::i2c::I2c> {
     Board { i2c_dev_ssd1306, i2c_dev_ds3231 }
 }
 {%- when "SPI ST7789" -%}
-//! Blinky example using Embassy and async/await.
+//! ST7789 display example.
 #![no_std]
 #![no_main]
 
@@ -1026,6 +1026,137 @@ where
         .orientation(orientation).color_order(color_order).invert_colors(color_inversion)
         .init(&mut emb::time::Delay).unwrap();
     Board { display, pin_display_bl, }
+}
+{%- when "SPI ILI9341" -%}
+//! ILI9341 display and touch example.
+#![no_std]
+#![no_main]
+
+mod xpt2046;
+
+mod emb {
+    pub use embassy_executor as executor;
+    pub use embassy_futures as futures;
+    pub use embassy_sync as sync;
+    pub use embassy_time as time;
+    pub use embassy_embedded_hal as hal;
+}
+use defmt::info;
+use embedded_hal_1 as hal;
+use mipidsi::models::ILI9341Rgb565 as DisplayModel;
+use static_cell::StaticCell;
+use core::cell::RefCell;
+use embedded_graphics as eg;
+use embedded_graphics::mono_font::iso_8859_1 as eg_fonts;
+
+pub type BlockingMutexNoop<T> =
+    emb::sync::blocking_mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
+pub type ChannelNoop<T, const N: usize> =
+    emb::sync::channel::Channel<emb::sync::blocking_mutex::raw::NoopRawMutex, T, N>;
+
+pub struct Board<Display, OutputPin, SpiDevice> {
+    pub display: Display,
+    pub pin_display_bl: OutputPin,
+    pub spi_dev_touch: SpiDevice,
+}
+
+#[emb::executor::main]
+async fn main(_spawner: emb::executor::Spawner) {
+    use eg::prelude::*;
+    use mipidsi::options as opts;
+    type ColorType = eg::pixelcolor::Rgb565;
+    let mut board = init_board(DisplayModel, (240, 320),
+        opts::Orientation::new().flip_vertical().rotate(opts::Rotation::Deg90),
+        opts::ColorOrder::Bgr, opts::ColorInversion::Normal);
+    let mut touch = xpt2046::Builder::new(board.spi_dev_touch, 240, 320)
+        .calibration(xpt2046::Calibration::default()).rotate90(true).build();
+    if let Some(calibration) = xpt2046::calibrate(&mut touch, &mut board.display, &mut emb::time::Delay,
+            eg::pixelcolor::Rgb565::GREEN, eg::pixelcolor::Rgb565::BLACK).await {
+        info!("touch.calibration = xpt2046::Calibration::new({}, {}, {}, {});",
+            calibration.xraw_right, calibration.xraw_left, calibration.yraw_top, calibration.yraw_bottom);
+        touch.calibration = calibration;
+    }
+    let position = board.display.bounding_box().center();
+    let character_style = eg::mono_font::MonoTextStyleBuilder::new()
+        .font(&eg_fonts::FONT_10X20).text_color(ColorType::WHITE).build();
+    let text_style = eg::text::TextStyleBuilder::new()
+        .baseline(eg::text::Baseline::Middle).alignment(eg::text::Alignment::Center).build();
+    eg::text::Text::with_text_style("Draw something!",
+        position, character_style, text_style).draw(&mut board.display).unwrap();
+    let channel_pos: ChannelNoop<(i32, i32), 16> = ChannelNoop::new();
+    let fut_main = async {
+        let style_dot = eg::primitives::PrimitiveStyleBuilder::new()
+            .fill_color(ColorType::RED).build();
+        loop {
+            let (x, y) = channel_pos.receive().await;
+            eg::primitives::Rectangle::new(
+                Point::new(x - 4, y - 4), Size::new(8, 8)
+            ).into_styled(style_dot).draw(&mut board.display).unwrap();
+        }
+    };
+    let fut_touch = touch.run_sampler(emb::time::Delay, 5, |pos| {
+        if let Some(pos) = pos { channel_pos.try_send(pos).ok(); }
+    });
+    emb::futures::join::join(fut_main, fut_touch).await;
+}
+
+//-----------------------------------------------------------------------------
+// board-specific implementation
+//-----------------------------------------------------------------------------
+use embassy_rp as rp;
+use {defmt_rtt as _, panic_probe as _};
+
+pub fn init_board<DisplayModel>(display_model: DisplayModel, size: (u16, u16), orientation: mipidsi::options::Orientation,
+    color_order: mipidsi::options::ColorOrder, color_inversion: mipidsi::options::ColorInversion)
+    -> Board<
+        impl eg::draw_target::DrawTarget<Color = eg::pixelcolor::Rgb565, Error: core::fmt::Debug>,
+        impl hal::digital::OutputPin,
+        impl hal::spi::SpiDevice,
+    >
+where
+    DisplayModel: mipidsi::models::Model<ColorFormat = eg::pixelcolor::Rgb565>,
+{
+    let p = rp::init(Default::default());
+    let mutex_spi1 = {
+        type Spi1 = rp::spi::Spi<'static, rp::peripherals::SPI1, rp::spi::Blocking>;
+        let (pin_clk, pin_mosi, pin_miso) = (p.PIN_10, p.PIN_11, p.PIN_12);
+        static STATIC_CELL: StaticCell<BlockingMutexNoop<RefCell<Spi1>>> = StaticCell::new();
+        STATIC_CELL.init(BlockingMutexNoop::new(RefCell::new(
+            Spi1::new_blocking(p.SPI1, pin_clk, pin_mosi, pin_miso, Default::default()))))
+    };
+    let pin_touch_cs = rp::gpio::Output::new(p.PIN_4, rp::gpio::Level::High);
+    let _pin_touch_irq  = rp::gpio::Input::new(p.PIN_5, rp::gpio::Pull::Up);
+    let pin_display_reset = rp::gpio::Output::new(p.PIN_6, rp::gpio::Level::Low);
+    let pin_display_dc = rp::gpio::Output::new(p.PIN_7, rp::gpio::Level::Low);
+    let pin_display_cs = rp::gpio::Output::new(p.PIN_8, rp::gpio::Level::High);
+    let pin_display_bl = rp::gpio::Output::new(p.PIN_9, rp::gpio::Level::High);
+    let mipidsi_spi_interface = {
+        let spi_dev = {
+            let mut config = rp::spi::Config::default();
+            config.frequency = 64_000_000;
+            config.phase = rp::spi::Phase::CaptureOnSecondTransition;
+            config.polarity = rp::spi::Polarity::IdleHigh;
+            emb::hal::shared_bus::blocking::spi::SpiDeviceWithConfig::new(mutex_spi1, pin_display_cs, config)
+        };
+        let spi_buf = {
+            const SPI_BUF_SIZE: usize = 320;
+            static STATIC_CELL: StaticCell<[u8; SPI_BUF_SIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; SPI_BUF_SIZE])
+        };
+        mipidsi::interface::SpiInterface::new(spi_dev, pin_display_dc, spi_buf)
+    };
+    let display = mipidsi::Builder::new(display_model, mipidsi_spi_interface)
+        .display_size(size.0, size.1).reset_pin(pin_display_reset)
+        .orientation(orientation).color_order(color_order).invert_colors(color_inversion)
+        .init(&mut emb::time::Delay).unwrap();
+    let spi_dev_touch = {
+        let mut config = rp::spi::Config::default();
+        config.frequency = 200_000;
+        config.phase = rp::spi::Phase::CaptureOnSecondTransition;
+        config.polarity = rp::spi::Polarity::IdleHigh;
+        emb::hal::shared_bus::blocking::spi::SpiDeviceWithConfig::new(mutex_spi1, pin_touch_cs, config)
+    };
+    Board { display, pin_display_bl, spi_dev_touch, }
 }
 {%- when "Wi-Fi Scan" -%}
 #![no_std]

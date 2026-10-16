@@ -23,6 +23,7 @@ choices = [
     "I2C SSD1306",
     "I2C SSD1306 + DS3231",
     "SPI ST7789",
+    "SPI ILI9341",
     "Wi-Fi Scan",
     "Wi-Fi TCP Server",
     "Wi-Fi HTTP Client",
@@ -33,6 +34,9 @@ type = "string"
 
 [conditional.'!(template == "PWM LED")']
 ignore = ["src/pwm_util.rs"]
+
+[conditional.'!(template == "SPI ILI9341")']
+ignore = ["src/xpt2046.rs"]
 
 [conditional.'!(template == "Wi-Fi Scan" || template == "Wi-Fi TCP Server" ||template == "Wi-Fi HTTP Client")']
 ignore = ["cyw43-firmware"]
