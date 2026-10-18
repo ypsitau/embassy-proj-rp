@@ -906,7 +906,6 @@ mod emb {
     pub use embassy_embedded_hal as hal;
 }
 use embedded_hal_1 as hal;
-use mipidsi::models::ST7789 as DisplayModel;
 use static_cell::StaticCell;
 use core::cell::RefCell;
 use embedded_graphics as eg;
@@ -915,18 +914,22 @@ use embedded_graphics::mono_font::iso_8859_1 as eg_fonts;
 pub type BlockingMutexNoop<T> =
     emb::sync::blocking_mutex::Mutex<emb::sync::blocking_mutex::raw::NoopRawMutex, T>;
 
-pub struct Board<Display, OutputPin> {
-    pub display: Display,
+pub struct Board<DisplayInterface, OutputPin> {
+    pub display_interface: DisplayInterface,
+    pub pin_display_reset: OutputPin,
     pub pin_display_bl: OutputPin,
 }
 
 #[emb::executor::main]
 async fn main(_spawner: emb::executor::Spawner) {
     use mipidsi::options as opts;
-    let mut board = init_board(DisplayModel, (240, 320),
-        opts::Orientation::new().rotate(opts::Rotation::Deg90),
-        opts::ColorOrder::Rgb, opts::ColorInversion::Inverted);
-    show(&mut board.display).unwrap();
+    let board = init_board();
+    let mut display = mipidsi::Builder::new(mipidsi::models::ST7789, board.display_interface)
+        .reset_pin(board.pin_display_reset).display_size(240, 320)
+        .orientation(opts::Orientation::new().rotate(opts::Rotation::Deg90))
+        .color_order(opts::ColorOrder::Bgr).invert_colors(opts::ColorInversion::Inverted)
+        .init(&mut emb::time::Delay).unwrap();
+    show(&mut display).unwrap();
     core::future::pending::<()>().await;
 }
 
@@ -985,15 +988,8 @@ where
 use embassy_rp as rp;
 use {defmt_rtt as _, panic_probe as _};
 
-pub fn init_board<DisplayModel>(display_model: DisplayModel, size: (u16, u16), orientation: mipidsi::options::Orientation,
-    color_order: mipidsi::options::ColorOrder, color_inversion: mipidsi::options::ColorInversion)
-    -> Board<
-        impl eg::draw_target::DrawTarget<Color = eg::pixelcolor::Rgb565, Error: core::fmt::Debug>,
-        impl hal::digital::OutputPin,
-    >
-where
-    DisplayModel: mipidsi::models::Model<ColorFormat = eg::pixelcolor::Rgb565>,
-{
+pub fn init_board()
+    -> Board<impl mipidsi::interface::Interface<Word = u8>, impl hal::digital::OutputPin> {
     let p = rp::init(Default::default());
     let (pin_spi1_clk, pin_spi1_mosi) = (p.PIN_10, p.PIN_11);
     let mutex_spi1 = {
@@ -1006,7 +1002,7 @@ where
     let pin_display_dc = rp::gpio::Output::new(p.PIN_7, rp::gpio::Level::Low);
     let pin_display_cs = rp::gpio::Output::new(p.PIN_8, rp::gpio::Level::High);
     let pin_display_bl = rp::gpio::Output::new(p.PIN_9, rp::gpio::Level::High);
-    let mipidsi_spi_interface = {
+    let display_interface = {
         let spi_dev = {
             let mut config = rp::spi::Config::default();
             config.frequency = 64_000_000;
@@ -1021,11 +1017,7 @@ where
         };
         mipidsi::interface::SpiInterface::new(spi_dev, pin_display_dc, spi_buf)
     };
-    let display = mipidsi::Builder::new(display_model, mipidsi_spi_interface)
-        .display_size(size.0, size.1).reset_pin(pin_display_reset)
-        .orientation(orientation).color_order(color_order).invert_colors(color_inversion)
-        .init(&mut emb::time::Delay).unwrap();
-    Board { display, pin_display_bl, }
+    Board { display_interface, pin_display_reset, pin_display_bl, }
 }
 {%- when "SPI ILI9341" -%}
 //! ILI9341 display and touch example.
