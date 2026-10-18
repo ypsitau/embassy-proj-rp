@@ -1035,7 +1035,6 @@ mod emb {
 }
 use core::fmt::Write as _;
 use embedded_hal_1 as hal;
-use mipidsi::models::ILI9341Rgb565 as DisplayModel;
 use static_cell::StaticCell;
 use core::cell::RefCell;
 use heapless::String;
@@ -1047,8 +1046,9 @@ pub type BlockingMutexNoop<T> =
 pub type ChannelNoop<T, const N: usize> =
     emb::sync::channel::Channel<emb::sync::blocking_mutex::raw::NoopRawMutex, T, N>;
 
-pub struct Board<Display, OutputPin, SpiDevice> {
-    pub display: Display,
+pub struct Board<DisplayInterface, SpiDevice, OutputPin> {
+    pub display_interface: DisplayInterface,
+    pub pin_display_reset: OutputPin,
     pub pin_display_bl: OutputPin,
     pub spi_dev_touch: SpiDevice,
 }
@@ -1058,28 +1058,31 @@ async fn main(_spawner: emb::executor::Spawner) {
     use eg::prelude::*;
     use mipidsi::options as opts;
     type ColorType = eg::pixelcolor::Rgb565;
-    let mut board = init_board(DisplayModel, (240, 320),
-        opts::Orientation::new().flip_vertical().rotate(opts::Rotation::Deg90),
-        opts::ColorOrder::Bgr, opts::ColorInversion::Normal);
+    let board = init_board();
+    let mut display = mipidsi::Builder::new(mipidsi::models::ILI9341Rgb565, board.display_interface)
+        .reset_pin(board.pin_display_reset).display_size(240, 320)
+        .orientation(opts::Orientation::new().flip_vertical().rotate(opts::Rotation::Deg90))
+        .color_order(opts::ColorOrder::Bgr).invert_colors(opts::ColorInversion::Normal)
+        .init(&mut emb::time::Delay).unwrap();
     let mut touch = xpt2046::Builder::new(board.spi_dev_touch, 240, 320)
         .calibration(xpt2046::Calibration::default()).rotate90(true).build();
-    if let Some(calibration) = xpt2046::calibrate(&mut touch, &mut board.display, &mut emb::time::Delay,
+    if let Some(calibration) = xpt2046::calibrate(&mut touch, &mut display, &mut emb::time::Delay,
             eg::pixelcolor::Rgb565::GREEN, eg::pixelcolor::Rgb565::BLACK).await {
         touch.calibration = calibration;
     }
-    let position = board.display.bounding_box().center();
+    let position = display.bounding_box().center();
     let character_style = eg::mono_font::MonoTextStyleBuilder::new()
         .font(&eg_fonts::FONT_9X18).text_color(ColorType::WHITE).build();
     let text_style_builder = eg::text::TextStyleBuilder::new().alignment(eg::text::Alignment::Center);
     eg::text::Text::with_text_style("Calibration Done. Ready to draw.",
         position, character_style, text_style_builder.baseline(eg::text::Baseline::Bottom).build())
-        .draw(&mut board.display).unwrap();
+        .draw(&mut display).unwrap();
     let mut sbuf: String<64> = String::new();
     let c = touch.calibration;
     write!(sbuf, "({}. {}, {}, {})", c.xraw_right, c.xraw_left, c.yraw_top, c.yraw_bottom).unwrap();
     eg::text::Text::with_text_style(&sbuf,
         position, character_style, text_style_builder.baseline(eg::text::Baseline::Top).build())
-        .draw(&mut board.display).unwrap();
+        .draw(&mut display).unwrap();
     let channel_pos: ChannelNoop<(i32, i32), 16> = ChannelNoop::new();
     let fut_main = async {
         let style_dot = eg::primitives::PrimitiveStyleBuilder::new()
@@ -1088,7 +1091,7 @@ async fn main(_spawner: emb::executor::Spawner) {
             let (x, y) = channel_pos.receive().await;
             eg::primitives::Rectangle::new(
                 Point::new(x - 4, y - 4), Size::new(8, 8)
-            ).into_styled(style_dot).draw(&mut board.display).unwrap();
+            ).into_styled(style_dot).draw(&mut display).unwrap();
         }
     };
     let fut_touch = touch.run_sampler(emb::time::Delay, 5, |event| {
@@ -1106,16 +1109,8 @@ async fn main(_spawner: emb::executor::Spawner) {
 use embassy_rp as rp;
 use {defmt_rtt as _, panic_probe as _};
 
-pub fn init_board<DisplayModel>(display_model: DisplayModel, size: (u16, u16), orientation: mipidsi::options::Orientation,
-    color_order: mipidsi::options::ColorOrder, color_inversion: mipidsi::options::ColorInversion)
-    -> Board<
-        impl eg::draw_target::DrawTarget<Color = eg::pixelcolor::Rgb565, Error: core::fmt::Debug>,
-        impl hal::digital::OutputPin,
-        impl hal::spi::SpiDevice,
-    >
-where
-    DisplayModel: mipidsi::models::Model<ColorFormat = eg::pixelcolor::Rgb565>,
-{
+pub fn init_board()
+    -> Board<impl mipidsi::interface::Interface<Word = u8>, impl hal::spi::SpiDevice, impl hal::digital::OutputPin> {
     let p = rp::init(Default::default());
     let (pin_spi1_clk, pin_spi1_mosi, pin_spi1_miso) = (p.PIN_10, p.PIN_11, p.PIN_12);
     let mutex_spi1 = {
@@ -1130,7 +1125,7 @@ where
     let pin_display_dc = rp::gpio::Output::new(p.PIN_7, rp::gpio::Level::Low);
     let pin_display_cs = rp::gpio::Output::new(p.PIN_8, rp::gpio::Level::High);
     let pin_display_bl = rp::gpio::Output::new(p.PIN_9, rp::gpio::Level::High);
-    let mipidsi_spi_interface = {
+    let display_interface = {
         let spi_dev = {
             let mut config = rp::spi::Config::default();
             config.frequency = 64_000_000;
@@ -1145,10 +1140,6 @@ where
         };
         mipidsi::interface::SpiInterface::new(spi_dev, pin_display_dc, spi_buf)
     };
-    let display = mipidsi::Builder::new(display_model, mipidsi_spi_interface)
-        .display_size(size.0, size.1).reset_pin(pin_display_reset)
-        .orientation(orientation).color_order(color_order).invert_colors(color_inversion)
-        .init(&mut emb::time::Delay).unwrap();
     let spi_dev_touch = {
         let mut config = rp::spi::Config::default();
         config.frequency = 200_000;
@@ -1156,7 +1147,7 @@ where
         config.polarity = rp::spi::Polarity::IdleHigh;
         emb::hal::shared_bus::blocking::spi::SpiDeviceWithConfig::new(mutex_spi1, pin_touch_cs, config)
     };
-    Board { display, pin_display_bl, spi_dev_touch, }
+    Board { display_interface, pin_display_reset, pin_display_bl, spi_dev_touch, }
 }
 {%- when "Wi-Fi Scan" -%}
 #![no_std]
