@@ -3,13 +3,13 @@ use embedded_hal_1 as hal;
 use embedded_graphics as eg;
 use embedded_graphics::prelude::*;
 
-#[derive(Debug, Clone, Copy, defmt::Format)]
+#[derive(Debug, Clone, Copy)]
 pub enum TouchEvent {
     Pressed((i32, i32)),
     Released,
 }
 
-#[derive(Debug, Clone, Copy, defmt::Format)]
+#[derive(Debug, Clone, Copy)]
 pub struct Calibration {
     pub xraw_right: i32,
     pub xraw_left: i32,
@@ -156,10 +156,7 @@ pub async fn calibrate<Color: eg::pixelcolor::PixelColor>(
     let xraw_right = xraw1 + (xraw2 - xraw1) * (touch.x_range - x_left) / (x_right - x_left);
     let yraw_top = yraw1 + (yraw2 - yraw1) * (-y_top) / (y_bottom - y_top);
     let yraw_bottom = yraw1 + (yraw2 - yraw1) * (touch.y_range - y_top) / (y_bottom - y_top);
-    if xraw_left == xraw_right || yraw_top == yraw_bottom {
-        defmt::warn!("Calibration failed: xraw_left == xraw_right or yraw_top == yraw_bottom");
-        return None;
-    }
+    if xraw_left == xraw_right || yraw_top == yraw_bottom { return None; }
     Some(Calibration { xraw_left, xraw_right, yraw_top, yraw_bottom, })
 }
 
