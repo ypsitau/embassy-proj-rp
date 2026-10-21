@@ -185,7 +185,7 @@ async fn main(_spawner: emb::executor::Spawner) {
     info!("cleared: {=[u8]:02x}", buf);
     board.flash.read(offset, &mut buf).unwrap();
     info!("read after write: {=[u8]:02x}", buf);
-    core::future::pending::<()>();
+    let _ = core::future::pending::<()>();
 }
 
 //-----------------------------------------------------------------------------
