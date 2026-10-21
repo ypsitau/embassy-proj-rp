@@ -17,6 +17,7 @@ choices = [
     "Blinky",
     "GPIO In/Out",
     "PWM LED",
+    "Flash Memory",
     "UART Echo",
     "USB Device CDC",
     "USB Device HID Keyboard and Mouse",
