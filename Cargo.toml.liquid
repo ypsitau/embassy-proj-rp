@@ -31,6 +31,10 @@ cortex-m-rt = { version = "0.7" }
 {% case template -%}
 {% when "Blinky" -%}
 {% when "GPIO In/Out" -%}
+{% when "PWM LED" -%}
+{% when "Flash Memory" -%}
+embedded-storage = { version = "0.3.2" }
+
 {% when "UART Echo" -%}
 {% when "USB Device CDC" -%}
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
