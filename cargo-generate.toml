@@ -36,6 +36,9 @@ type = "string"
 [conditional.'!(template == "PWM LED")']
 ignore = ["src/pwm_util.rs"]
 
+[conditional.'!(template == "I2C SSD1306 + DS3231")']
+ignore = ["src/ds3231.rs"]
+
 [conditional.'!(template == "SPI ILI9341")']
 ignore = ["src/xpt2046.rs"]
 
