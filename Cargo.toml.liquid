@@ -45,14 +45,9 @@ embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-usb-driver = { version = "0.2.2", features = ["defmt"] }
 usbd-hid = { version = "0.10.2" }
 
-{% when "I2C SSD1306" -%}
+{% when "I2C SSD1306" or "I2C SSD1306 + DS3231" -%}
 embedded-graphics = { version = "0.8.2" }
 ssd1306 = { version = "0.10.0", features = ["async"] }
-
-{% when "I2C SSD1306 + DS3231" -%}
-embedded-graphics = { version = "0.8.2" }
-ssd1306 = { version = "0.10.0", features = ["async"] }
-time = { version = "0.3.55", default-features = false } # no_std
 
 {% when "SPI ST7789" or "SPI ILI9341" -%}
 embedded-graphics = { version = "0.8.2" }
