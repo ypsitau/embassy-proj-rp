@@ -240,8 +240,9 @@ use embedded_io_async::{Read as _, Write as _};
 use defmt::info;
 use static_cell::StaticCell;
 
-struct Board<Uart> {
-    uart: Uart,
+struct Board<UartTx, UartRx> {
+    uart_tx: UartTx,
+    uart_rx: UartRx,
 }
 
 #[emb::executor::main]
@@ -253,17 +254,17 @@ async fn main(_spawner: emb::executor::Spawner) {
         static STATIC_CELL: StaticCell<[u8; BUFSIZE]> = StaticCell::new();
         STATIC_CELL.init([0u8; BUFSIZE])
     };
-    board.uart.write_all(b"Enter any keystrokes:\r\n").await.ok();
-    board.uart.flush().await.ok();
+    board.uart_tx.write_all(b"Enter any keystrokes:\r\n").await.ok();
+    board.uart_tx.flush().await.ok();
     loop {
-        match board.uart.read(buf).await {
+        match board.uart_rx.read(buf).await {
             Ok(len) => {
-                board.uart.write_all(&buf[..len]).await.ok();
-                board.uart.flush().await.ok();
+                board.uart_tx.write_all(&buf[..len]).await.ok();
+                board.uart_tx.flush().await.ok();
             }
             Err(_) => {
-                board.uart.write_all(b"error in reading\r\n").await.ok();
-                board.uart.flush().await.ok();
+                board.uart_tx.write_all(b"error in reading\r\n").await.ok();
+                board.uart_tx.flush().await.ok();
             }
         }
     }
@@ -279,25 +280,25 @@ rp::bind_interrupts!(struct Irqs {
     UART0_IRQ => rp::uart::BufferedInterruptHandler<rp::peripherals::UART0>;
 });
 
-fn init_board() -> Board<impl io_async::Read + io_async::Write> {
+fn init_board() -> Board<impl io_async::Write, impl io_async::Read> {
     let p = rp::init(Default::default());
     let uart = {
-        let pin_tx = p.PIN_0;
-        let pin_rx = p.PIN_1;
+        let (pin_tx, pin_rx) = (p.PIN_0, p.PIN_1);
         let tx_buffer = {
-            const TX_BUFSIZE: usize = 64;
-            static STATIC_CELL: StaticCell<[u8; TX_BUFSIZE]> = StaticCell::new();
-            STATIC_CELL.init([0u8; TX_BUFSIZE])
+            const BUFSIZE: usize = 64;
+            static STATIC_CELL: StaticCell<[u8; BUFSIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; BUFSIZE])
         };
         let rx_buffer = {
-            const RX_BUFSIZE: usize = 64;
-            static STATIC_CELL: StaticCell<[u8; RX_BUFSIZE]> = StaticCell::new();
-            STATIC_CELL.init([0u8; RX_BUFSIZE])
+            const BUFSIZE: usize = 64;
+            static STATIC_CELL: StaticCell<[u8; BUFSIZE]> = StaticCell::new();
+            STATIC_CELL.init([0u8; BUFSIZE])
         };
         let config = rp::uart::Config::default();
         rp::uart::BufferedUart::new(p.UART0, pin_tx, pin_rx, Irqs, tx_buffer, rx_buffer, config)
     };
-    Board { uart }
+    let (uart_tx, uart_rx) = uart.split();
+    Board { uart_tx, uart_rx }
 }
 {%- when "USB Device CDC" -%}
 //! USB Device CDC example using Embassy and async/await.
